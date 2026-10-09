@@ -33,4 +33,4 @@ Use a programmer with target-compatible voltage, and only one supply source. AC-
 
 ![Revised battery MCU pin mapping used by the supported firmware](battery/mcu-pin-map-revised.png)
 
-The supplied drawings and AC-DC PCB render are reference exports. No editable EDA project, PCB layout source, Gerbers, BOM, or assembly files were provided for inclusion.
+The supplied drawings and AC-DC PCB render are reference exports. [Hardware 1 Gerbers](ac-dc/manufacturing/README.md) are available. No editable EDA project, PCB layout source, BOM, or assembly files were provided for inclusion.

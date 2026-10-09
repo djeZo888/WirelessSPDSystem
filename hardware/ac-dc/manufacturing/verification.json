@@ -1,0 +1,89 @@
+{
+  "hardware": 1,
+  "result": "matches published AC-DC beacon layout and pin mapping",
+  "checked_date": "2026-10-09",
+  "source_archive_sha256": "0e5230e357f6bb240309e525b4dc62db4e6867e30117cd96afd0c8cceb626254",
+  "fabrication_archive": "hw1-acdc-gerbers.zip",
+  "fabrication_archive_sha256": "4b5bd843c8f327244b95ec2629846d4257388e433caee95febaa89240d42332f",
+  "board_dimensions_mm": [
+    34,
+    75
+  ],
+  "routing_slots": 4,
+  "plated_drill_hits": 123,
+  "via_hits_included_in_plated_file": 99,
+  "nonplated_mounting_holes": {
+    "count": 4,
+    "diameter_mm": 3.2
+  },
+  "matches": [
+    "PCB render outline, holes, slots and component placement",
+    "AVR128DA32 U17, Wio-SX1262 U14, IRM-02-3.3, fuse, SPD/TMP connector",
+    "MCU, radio, contact, NTC, LED, RESET and UPDI pin assignments",
+    "116 original component-pin positions agree with Gerber copper-pad locations"
+  ],
+  "reference_sha256": {
+    "pcb-render.png": "ea2cb123825be588c16a75be9168d36d5fa3765f47cd585bdf440e09660560e5",
+    "schematic.svg": "0a2575789509fa1b1d029e22ee72bae912cb6ddc350c10d2061cd063801f126e"
+  },
+  "source_revision_note": "Source filename contains lite-v1-1; bottom silkscreen says Lite v1.0. Layout corresponds to hardware 1.",
+  "schematic_note": "PCB routes converter output through the 3V3EN jumper shown in the render; schematic simplifies this as continuous VCC.",
+  "packaging_notes": [
+    "Selected fabrication files are byte-for-byte unchanged.",
+    "Via-only drill subset omitted: all 99 via positions already occur in the plated drill file.",
+    "Fabricator customer/order metadata, processed CAM data, previews and reference drawings omitted."
+  ],
+  "scope": "Hardware identity and file consistency check; no full copper connectivity/DRC or electrical qualification.",
+  "files": [
+    {
+      "file": "Gerber_TopLayer.GTL",
+      "bytes": 78402,
+      "sha256": "bba86dd885913076a413526fcc7247169dfcbb4eea2acdc10bc444144180e1ee"
+    },
+    {
+      "file": "Gerber_BottomLayer.GBL",
+      "bytes": 23532,
+      "sha256": "1ff2557b6830e93feef22898a79a592f1c8f8fe80997c13a6fb42f11e623696c"
+    },
+    {
+      "file": "Gerber_TopSolderMaskLayer.GTS",
+      "bytes": 4651,
+      "sha256": "8f4fad69cd82919f7d6b49900162b5f7225bb12c46272f5136919f0ecd606cd3"
+    },
+    {
+      "file": "Gerber_BottomSolderMaskLayer.GBS",
+      "bytes": 1475,
+      "sha256": "5ab0641b8ec2cd1d91f47e656f43520ab355fd954b8509c9fcb1229d593a9ca5"
+    },
+    {
+      "file": "Gerber_TopSilkscreenLayer.GTO",
+      "bytes": 48464,
+      "sha256": "0aa371c42054a7f0ddb8a9ab633ac69eaecd736a4bed0776ec59996fe9468333"
+    },
+    {
+      "file": "Gerber_BottomSilkscreenLayer.GBO",
+      "bytes": 6410,
+      "sha256": "ee55da08819df59ff2205a47c646eaa42c4fd24fb38a3df2b94027db0f402dfe"
+    },
+    {
+      "file": "Gerber_BoardOutlineLayer.GKO",
+      "bytes": 1318,
+      "sha256": "67ca98e129f6bf98d136bf944dd268d978bf0d57107c62a4656756113a264268"
+    },
+    {
+      "file": "Gerber_TopPasteMaskLayer.GTP",
+      "bytes": 10957,
+      "sha256": "d1fb16dc74108adf756bdd7fd3750e0b9109ea097057dd415431b88235b32c00"
+    },
+    {
+      "file": "Drill_PTH_Through.DRL",
+      "bytes": 2558,
+      "sha256": "ccefd1aec598f4b7c0c9f6eb6ec164cd2615ae26fd2647967dd57f6842a5ff03"
+    },
+    {
+      "file": "Drill_NPTH_Through.DRL",
+      "bytes": 247,
+      "sha256": "7a297f64bdf57d67d594bb9e00aec5b7c88f52e03ef2313971aed92f106f202e"
+    }
+  ]
+}
