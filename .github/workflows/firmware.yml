@@ -1,0 +1,25 @@
+name: Firmware builds
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [acdc, battery, server]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: 1.5.1
+      - name: Install pinned dependencies
+        run: python3 tools/firmware.py setup ${{ matrix.target }}
+      - name: Compile with synthetic configuration
+        run: python3 tools/firmware.py validate ${{ matrix.target }}
+      - name: Check repository hygiene
+        run: python3 tools/check_repository.py
+      - name: Check packet compatibility
+        if: matrix.target == 'acdc'
+        run: python3 tests/check_packet_compatibility.py

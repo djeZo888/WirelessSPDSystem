@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+<title id="title">Wireless SPD communication</title>
+<desc id="desc">An SPD dry contact and temperature sensor feed either beacon. A 20-byte one-way LoRa message is authenticated by the T-Connect Pro receiver and held in RAM for its display and local web interface.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#51687b"/></marker></defs>
+<style>text {font-family:Arial,Helvetica,sans-serif} .mono {font-family:Consolas,Menlo,monospace}</style>
+<rect width="1280" height="640" fill="#fff"/>
+<text x="48" y="58" font-size="34" fill="#16324a" text-anchor="start" font-weight="700">Wireless SPD System</text>
+<text x="48" y="94" font-size="21" fill="#51687b" text-anchor="start">One-way telemetry from configured beacons to a local receiver</text>
+<rect x="48" y="170" width="202" height="226" rx="14" fill="#f2f6f9" stroke="#d7e2eb"/>
+<text x="70" y="207" font-size="23" fill="#16324a" text-anchor="start" font-weight="700">SPD inputs</text>
+<text x="70" y="248" font-size="19" fill="#16324a" text-anchor="start">Dry contact</text>
+<text x="70" y="275" font-size="19" fill="#16324a" text-anchor="start">OK / FAIL</text>
+<text x="70" y="302" font-size="19" fill="#16324a" text-anchor="start"></text>
+<text x="70" y="329" font-size="19" fill="#16324a" text-anchor="start">10 kΩ NTC</text>
+<text x="70" y="356" font-size="19" fill="#16324a" text-anchor="start">Temperature</text>
+<rect x="291" y="170" width="270" height="226" rx="14" fill="#edf6fb" stroke="#bedce9"/>
+<text x="314" y="207" font-size="23" fill="#166a94" text-anchor="start" font-weight="700">TX beacon</text>
+<text x="314" y="246" font-size="19" fill="#16324a" text-anchor="start">HW 1 · AC-DC</text>
+<text x="314" y="274" font-size="19" fill="#16324a" text-anchor="start">AVR128DA32</text>
+<text x="314" y="302" font-size="19" fill="#16324a" text-anchor="start">HW 2 · LiFePO4</text>
+<text x="314" y="330" font-size="19" fill="#16324a" text-anchor="start">AVR128DB32</text>
+<text x="314" y="358" font-size="19" fill="#16324a" text-anchor="start">Measure → pack → tag</text>
+<path d="M254 283 L284 283" stroke="#51687b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="697" y="151" width="286" height="264" rx="14" fill="#edf6f2" stroke="#c2ded5"/>
+<text x="720" y="191" font-size="23" fill="#247562" text-anchor="start" font-weight="700">T-Connect Pro RX</text>
+<text x="720" y="233" font-size="18" fill="#16324a" text-anchor="start">1  Length + configured ID</text>
+<text x="720" y="267" font-size="18" fill="#16324a" text-anchor="start">2  Verify keyed hash tag</text>
+<text x="720" y="301" font-size="18" fill="#16324a" text-anchor="start">3  Require newer nonce</text>
+<path d="M720 325 L959 325" stroke="#c2ded5" stroke-width="2" fill="none"/>
+<text x="720" y="356" font-size="19" fill="#16324a" text-anchor="start">Update live state in RAM</text>
+<text x="720" y="384" font-size="19" fill="#16324a" text-anchor="start">Status · age · link quality</text>
+<path d="M568 283 L689 283" stroke="#51687b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<text x="629" y="244" font-size="18" fill="#166a94" text-anchor="middle" font-weight="700">LoRa</text>
+<text x="629" y="268" font-size="18" fill="#166a94" text-anchor="middle" font-weight="700">20 bytes</text>
+<text x="629" y="323" font-size="16" fill="#51687b" text-anchor="middle">No ACK</text>
+<rect x="1034" y="169" width="199" height="99" rx="14" fill="#f2f6f9" stroke="#d7e2eb"/>
+<text x="1054" y="205" font-size="21" fill="#16324a" text-anchor="start" font-weight="700">Built-in display</text>
+<text x="1054" y="237" font-size="17" fill="#51687b" text-anchor="start">Touch + relay alarm</text>
+<rect x="1034" y="300" width="199" height="99" rx="14" fill="#f2f6f9" stroke="#d7e2eb"/>
+<text x="1054" y="336" font-size="21" fill="#16324a" text-anchor="start" font-weight="700">Local web UI</text>
+<text x="1054" y="368" font-size="17" fill="#51687b" text-anchor="start">Browser + JSON API</text>
+<path d="M991 283 L1010 283 L1010 219 L1026 219" stroke="#51687b" stroke-width="2" fill="none"/>
+<path d="M1020 219 L1027 219" stroke="#51687b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1010 283 L1010 349 L1026 349" stroke="#51687b" stroke-width="2" fill="none"/>
+<path d="M1020 349 L1027 349" stroke="#51687b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="48" y="471" width="375" height="118" rx="14" fill="#f8fafc" stroke="#d7e2eb"/>
+<text x="69" y="507" font-size="21" fill="#16324a" text-anchor="start" font-weight="700">Routine report</text>
+<text x="69" y="540" font-size="18" fill="#51687b" text-anchor="start">Randomized intervals reduce</text>
+<text x="69" y="566" font-size="18" fill="#51687b" text-anchor="start">simultaneous transmissions.</text>
+<rect x="453" y="471" width="375" height="118" rx="14" fill="#f8fafc" stroke="#d7e2eb"/>
+<text x="474" y="507" font-size="21" fill="#16324a" text-anchor="start" font-weight="700">Detected fault</text>
+<text x="474" y="540" font-size="18" fill="#51687b" text-anchor="start">OK → FAIL sends an event</text>
+<text x="474" y="566" font-size="18" fill="#51687b" text-anchor="start">with repeated identical frames.</text>
+<rect x="858" y="471" width="375" height="118" rx="14" fill="#f8fafc" stroke="#d7e2eb"/>
+<text x="879" y="507" font-size="21" fill="#16324a" text-anchor="start" font-weight="700">Missing report</text>
+<text x="879" y="540" font-size="18" fill="#51687b" text-anchor="start">Receiver marks a seen beacon</text>
+<text x="879" y="566" font-size="18" fill="#51687b" text-anchor="start">stale after its timeout.</text>
+</svg>

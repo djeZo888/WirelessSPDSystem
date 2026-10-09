@@ -1,0 +1,15 @@
+# Local configuration and firmware contain deployment secrets.
+config.h
+*.private.*
+.env
+.env.*
+.arduino/
+build/
+private/
+*.bin
+*.hex
+*.elf
+*.map
+__pycache__/
+*.pyc
+.DS_Store

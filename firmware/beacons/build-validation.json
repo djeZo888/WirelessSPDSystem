@@ -1,0 +1,45 @@
+{
+  "validated_utc": "2026-10-09T19:22:20.978289+00:00",
+  "versions": {
+    "Arduino_CLI": "1.5.1",
+    "DxCore": "1.6.2",
+    "RadioLib": "7.8.1",
+    "avr_gcc": "7.3.0-atmel3.6.1-azduino8",
+    "usha256_commit": "1c62a3f6e7c66b16d84db5940c4e01e5cc0a6d41"
+  },
+  "builds": [
+    {
+      "sketch": "acdc_avr128da32",
+      "source_sha256": "674333e8673c07e9b65cb8a114bb1eec8cead6f7d032cd70eac0a0cd85dc4cb0",
+      "fqbn": "DxCore:megaavr:avrda:chip=avr128da32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=disabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
+      "example_config_sf": 10,
+      "validation_config": "Synthetic non-production 32-bit secret; not flashed or included in this source tree.",
+      "result": "passed",
+      "memory_summary": [
+        "Sketch uses 39348 bytes (30%) of program storage space. Maximum is 131072 bytes.",
+        "Global variables use 1504 bytes (9%) of dynamic memory, leaving 14880 bytes for local variables. Maximum is 16384 bytes."
+      ],
+      "missing_config_guard_passed": true,
+      "zero_secret_guard_passed": true
+    },
+    {
+      "sketch": "battery_avr128db32",
+      "source_sha256": "c8581a06429e21d8a1615cb6104c0f1c41f984a8f310b12e9931862cc6837cfa",
+      "fqbn": "DxCore:megaavr:avrdb:chip=avr128db32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=disabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,mvio=enabled,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
+      "example_config_sf": 10,
+      "validation_config": "Synthetic non-production 32-bit secret; not flashed or included in this source tree.",
+      "result": "passed",
+      "memory_summary": [
+        "Sketch uses 40746 bytes (31%) of program storage space. Maximum is 131072 bytes.",
+        "Global variables use 1534 bytes (9%) of dynamic memory, leaving 14850 bytes for local variables. Maximum is 16384 bytes."
+      ],
+      "missing_config_guard_passed": true,
+      "zero_secret_guard_passed": true,
+      "validation_method": "tools/firmware.py validate battery with pinned local SHA-256 dependency",
+      "compile_warnings": [],
+      "api_compatibility_cleanup": "Local sec4 buffer is mutable to match the unchanged upstream sha256_update API. Packet bytes, authentication, behavior and FW version are unchanged."
+    }
+  ],
+  "hardware_flash_performed": false,
+  "hardware_validation": "Pending board programming, receiver acceptance, power, fuse and standby-current checks."
+}
