@@ -1,5 +1,5 @@
 {
-  "validated_utc": "2026-10-09T19:22:20.978289+00:00",
+  "validated_utc": "2026-10-09T21:29:56.931998+00:00",
   "versions": {
     "Arduino_CLI": "1.5.1",
     "DxCore": "1.6.2",
@@ -10,36 +10,54 @@
   "builds": [
     {
       "sketch": "acdc_avr128da32",
-      "source_sha256": "674333e8673c07e9b65cb8a114bb1eec8cead6f7d032cd70eac0a0cd85dc4cb0",
-      "fqbn": "DxCore:megaavr:avrda:chip=avr128da32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=disabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
+      "source_sha256": "6584b255d179823a5c332740577db800dd84e726b1f9bc751bb3c5159066faa2",
+      "fqbn": "DxCore:megaavr:avrda:chip=avr128da32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=enabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
       "example_config_sf": 10,
       "validation_config": "Synthetic non-production 32-bit secret; not flashed or included in this source tree.",
       "result": "passed",
       "memory_summary": [
-        "Sketch uses 39348 bytes (30%) of program storage space. Maximum is 131072 bytes.",
-        "Global variables use 1504 bytes (9%) of dynamic memory, leaving 14880 bytes for local variables. Maximum is 16384 bytes."
-      ],
-      "missing_config_guard_passed": true,
-      "zero_secret_guard_passed": true
-    },
-    {
-      "sketch": "battery_avr128db32",
-      "source_sha256": "c8581a06429e21d8a1615cb6104c0f1c41f984a8f310b12e9931862cc6837cfa",
-      "fqbn": "DxCore:megaavr:avrdb:chip=avr128db32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=disabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,mvio=enabled,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
-      "example_config_sf": 10,
-      "validation_config": "Synthetic non-production 32-bit secret; not flashed or included in this source tree.",
-      "result": "passed",
-      "memory_summary": [
-        "Sketch uses 40746 bytes (31%) of program storage space. Maximum is 131072 bytes.",
-        "Global variables use 1534 bytes (9%) of dynamic memory, leaving 14850 bytes for local variables. Maximum is 16384 bytes."
+        "Sketch uses 40970 bytes (31%) of program storage space. Maximum is 131072 bytes.",
+        "Global variables use 1509 bytes (9%) of dynamic memory, leaving 14875 bytes for local variables. Maximum is 16384 bytes."
       ],
       "missing_config_guard_passed": true,
       "zero_secret_guard_passed": true,
-      "validation_method": "tools/firmware.py validate battery with pinned local SHA-256 dependency",
+      "source_files_sha256": {
+        "acdc_avr128da32.ino": "6584b255d179823a5c332740577db800dd84e726b1f9bc751bb3c5159066faa2",
+        "build-options.json": "53eb8927354f460c1e9f5b94236725df0303bcd32fe80593eb4ceda13cc6c275",
+        "config.example.h": "817e0e7f917ad8f757402af8fa476ed00c924c05c6480a8e358559f051b36306",
+        "nonce_eeprom.h": "e2e2d448c75bb2ea6307c15b8c28489f2269e578a64472f55ad3b9b98af7cc03",
+        "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
+      },
+      "firmware_version": 1,
+      "validation_method": "tools/firmware.py validate with synthetic config and pinned local dependencies",
+      "zero_nonce_guard_passed": true
+    },
+    {
+      "sketch": "battery_avr128db32",
+      "source_sha256": "6f14904e7ce1d406ee47748434e77014a995492129ab1c6bf066793b26227e93",
+      "fqbn": "DxCore:megaavr:avrdb:chip=avr128db32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=ensampslow,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,mvio=enabled,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
+      "example_config_sf": 10,
+      "validation_config": "Synthetic non-production 32-bit secret; not flashed or included in this source tree.",
+      "result": "passed",
+      "memory_summary": [
+        "Sketch uses 42354 bytes (32%) of program storage space. Maximum is 131072 bytes.",
+        "Global variables use 1539 bytes (9%) of dynamic memory, leaving 14845 bytes for local variables. Maximum is 16384 bytes."
+      ],
+      "missing_config_guard_passed": true,
+      "zero_secret_guard_passed": true,
+      "validation_method": "tools/firmware.py validate with synthetic config and pinned local dependencies",
       "compile_warnings": [],
-      "api_compatibility_cleanup": "Local sec4 buffer is mutable to match the unchanged upstream sha256_update API. Packet bytes, authentication, behavior and FW version are unchanged."
+      "source_files_sha256": {
+        "battery_avr128db32.ino": "6f14904e7ce1d406ee47748434e77014a995492129ab1c6bf066793b26227e93",
+        "build-options.json": "5fddbdda7b9b62c23d0c134d059ca536c57b91826c8d5848fcb477df23a71ace",
+        "config.example.h": "3bc000aafd3b64817b9ff4723f4399e056164ae36904dceea2401d1855ec174f",
+        "nonce_eeprom.h": "e2e2d448c75bb2ea6307c15b8c28489f2269e578a64472f55ad3b9b98af7cc03",
+        "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
+      },
+      "firmware_version": 1,
+      "zero_nonce_guard_passed": true
     }
   ],
   "hardware_flash_performed": false,
-  "hardware_validation": "Pending board programming, receiver acceptance, power, fuse and standby-current checks."
+  "hardware_validation": "Pending physical power-interruption, fuse/EEPROM retention, receiver acceptance and battery standby-current checks."
 }

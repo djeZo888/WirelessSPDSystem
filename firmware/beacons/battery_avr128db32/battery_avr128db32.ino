@@ -13,10 +13,11 @@
 #include <avr/sleep.h>
 #include <math.h>
 #include <string.h>
+#include "nonce_eeprom.h"
 
 // -----------------------------------------------------------------------------
 // DEHN SPD FM wireless beacon - AVR128DB32 + Wio-SX1262 + LiFePO4 cell
-// Hardware type 2 / firmware version 0 / low-power build with button wake.
+// Hardware type 2 / firmware version 1 / low-power build with button wake.
 // Pin map updated for manufactured PCB screenshot: BUTTON1=PD6, SPD_STATUS=PD4, LEDs=PF4/PF3/PF2.
 // v4: BUTTON1 wake uses attachInterrupt(), not a manually defined PORTD_PORT_vect ISR.
 // v5: SPD status front end is sampled once per minute instead of once per second.
@@ -37,9 +38,9 @@ const uint8_t  SPD_ID = WSPD_BEACON_ID;   // 1..127 (0 reserved)
 // Payload identity byte:
 //   bits 7..4 = hardware type: 1 = previous AVR128DA32 hardware, 2 = AVR128DB32 hardware
 //   bits 3..0 = firmware version
-// Type 0 is reserved. Firmware version starts at 0 for this AVR128DB32 build.
+// Type 0 is reserved. Production firmware version starts at 1.
 constexpr uint8_t BEACON_HW_TYPE          = 2;
-constexpr uint8_t BEACON_FIRMWARE_VERSION = 0;
+constexpr uint8_t BEACON_FIRMWARE_VERSION = 1;
 static_assert(BEACON_HW_TYPE > 0 && BEACON_HW_TYPE <= 0x0F, "BEACON_HW_TYPE must be 1..15");
 static_assert(BEACON_FIRMWARE_VERSION <= 0x0F, "BEACON_FIRMWARE_VERSION must be 0..15");
 
@@ -368,7 +369,8 @@ static void sleepUntilSecond(uint32_t targetSecond) {
 SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
 
 // ---------------------- STATE ----------------------
-static uint64_t nextNonce = 0;
+static AvrNonceStorage nonceStorage;
+static PersistentNonceJournal<AvrNonceStorage> nonceJournal(nonceStorage);
 static uint32_t nextTxSec = 0;
 static uint32_t nextStatusSampleSec = 0;
 static uint32_t nextLedBlinkSec = 0;
@@ -405,6 +407,7 @@ static void waitForButtonReleaseAndRearm();
 static void handleButtonWakeRequest();
 static void blinkStatusLeds();
 static void buildAndSendCurrentBeacon(uint8_t spd, bool burstFailRepeats);
+static void haltNonceStorageFault() __attribute__((noreturn));
 
 static bool radioOk(int16_t state) {
   return (state == RADIOLIB_ERR_NONE);
@@ -431,7 +434,19 @@ static bool loraInitFail() {
 }
 
 static uint64_t allocateNonce() {
-  return nextNonce++;
+  uint64_t nonce;
+  if (!nonceJournal.allocate(nonce)) haltNonceStorageFault();
+  return nonce;
+}
+
+// Never emit a replay after a storage failure; all LEDs blink until serviced.
+static void haltNonceStorageFault() {
+  while (true) {
+    ledOn(LED_PWR); ledOn(LED_TX); ledOn(LED_SPD);
+    delay(250);
+    ledOff(LED_PWR); ledOff(LED_TX); ledOff(LED_SPD);
+    delay(250);
+  }
 }
 
 static void packUint64LE(uint8_t* out, uint64_t value) {
@@ -955,6 +970,7 @@ static void configureLowPowerPins() {
 // ---------------------- SETUP / LOOP ----------------------
 void setup() {
   configureLowPowerPins();
+  if (!nonceJournal.begin(WSPD_NONCE_START)) haltNonceStorageFault();
   setupRtcPit1Hz();
   armButtonWakeInterrupt();
   sei();

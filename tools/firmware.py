@@ -142,6 +142,41 @@ def validate(args, options):
     print("Synthetic compile passed. Validation images are never selected by flash.")
 
 
+def prepare_beacon_storage(args, options):
+    """Protect the nonce journal before the uploader's automatic chip erase.
+
+    DxCore's ordinary upload does not set BODCFG and may erase before applying
+    EESAVE. Program those fuses separately first, with signature checks and
+    readback verification; never issue an erase or override a wrong signature.
+    """
+    output = subprocess.check_output(cli(args, "board", "details", "--fqbn",
+                                         options["fqbn"], "--show-properties"), text=True)
+    properties = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
+    # CLI board details does not expand tool-local {path} placeholders.
+    tool_path = properties["tools.avrdude.path"]
+    executable = properties["tools.avrdude.cmd.path"].replace("{path}", tool_path)
+    configuration = properties["tools.avrdude.config.path"].replace("{path}", tool_path)
+    if "{" in executable + configuration:
+        raise SystemExit("Cannot resolve AVRDUDE paths; no target operation attempted.")
+    command = [executable, "-C", configuration,
+               "-p", properties["build.mcu"], "-c", "pickit4_updi", "-P", "usb"]
+    bodcfg = int(properties["bootloader.BODCFG"], 0)
+    if (bodcfg & 0x0C) != 0x04:
+        raise SystemExit("Beacon profile must enable continuous BOD while active for EEPROM writes.")
+    with tempfile.TemporaryDirectory(prefix="wspd-fuses-") as temp:
+        saved = Path(temp) / "fuse5.bin"
+        run([*command, "-n", "-Ufuse5:r:" + str(saved) + ":r"])
+        value = saved.read_bytes()
+        if len(value) != 1:
+            raise SystemExit("Cannot read EESAVE fuse; no firmware upload attempted.")
+        # Keep every other existing fuse5 bit until the normal DxCore recipe
+        # applies its configured RESET/EEPROM value. This invocation cannot erase.
+        eesave = value[0] | 0x01
+        run([*command, f"-Ufuse5:w:0x{eesave:02x}:m", f"-Ufuse5:v:0x{eesave:02x}:m",
+             f"-Ufuse1:w:0x{bodcfg:02x}:m", f"-Ufuse1:v:0x{bodcfg:02x}:m"])
+    print("EEPROM retention and active BOD fuses verified before firmware upload.")
+
+
 def flash(args, options):
     out = ROOT / "build" / args.target
     manifest_path = out / "manifest.private.json"
@@ -162,6 +197,7 @@ def flash(args, options):
             raise SystemExit("Specify --port for the T Connect Pro USB connection.")
         command.extend(["--port", args.port])
     else:
+        prepare_beacon_storage(args, options)
         command.extend(["--programmer", options["programmer"], "--verify"])
     run([*command, TARGETS[args.target]])
 

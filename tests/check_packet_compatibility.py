@@ -45,8 +45,12 @@ def main():
             "#pragma once\n#include <stdint.h>\n#define PROGMEM\n"
             "#define pgm_read_dword(p) (*(const uint32_t *)(p))\n"
             "#define pgm_read_byte(p) (*(const uint8_t *)(p))\n")
-        for folder, hw, fw in [("acdc_avr128da32", 1, 1), ("battery_avr128db32", 2, 0)]:
+        for folder, hw, fw in [("acdc_avr128da32", 1, 1), ("battery_avr128db32", 2, 1)]:
             beacon = (ROOT / "firmware/beacons" / folder / (folder + ".ino")).read_text()
+            for constant, expected in [("BEACON_HW_TYPE", hw), ("BEACON_FIRMWARE_VERSION", fw)]:
+                value = re.search(r"constexpr uint8_t\s+" + constant + r"\s*=\s*(\d+);", beacon)
+                if not value or int(value[1]) != expected:
+                    raise SystemExit(f"Unexpected {constant}: {folder}")
             body = """#include <usha256.h>
 #include <cstdio>
 #include <cstring>
