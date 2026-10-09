@@ -90,8 +90,10 @@ def validation_config(sketch, server):
             content, flags=re.S)
         if count != 1:
             raise SystemExit("Cannot prepare synthetic server beacon configuration.")
-        content = re.sub(r"constexpr int16_t SPD_LOCAL_ID = -?\d+;",
-                         "constexpr int16_t SPD_LOCAL_ID = 0;", content)
+        content, count = re.subn(r"constexpr (?:int16_t|auto) SPD_LOCAL_ID = -?\d+;",
+                                "constexpr auto SPD_LOCAL_ID = 0;", content)
+        if count != 1:
+            raise SystemExit("Cannot enable the synthetic server local SPD configuration.")
     else:
         content = content.replace("0x00000000UL", "0x7C9E4A21UL")
     (sketch / "config.h").write_text(content)

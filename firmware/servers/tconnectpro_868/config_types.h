@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <type_traits>
 
 struct SpdConfig {
   uint8_t id;
@@ -9,6 +10,8 @@ struct SpdConfig {
 };
 
 // Keep configured millisecond intervals within the wrap-safe half range.
-constexpr bool validConfigInterval(uint32_t interval, bool allowZero = false) {
-  return (allowZero || interval > 0) && interval <= 2147483647UL;
+template <typename T>
+constexpr bool validConfigInterval(T interval, bool allowZero = false) {
+  return std::is_integral<T>::value && interval >= 0 &&
+         (allowZero || interval > 0) && interval <= 2147483647ULL;
 }

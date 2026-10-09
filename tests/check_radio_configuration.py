@@ -191,24 +191,50 @@ SERVER_CASES = {
     "LORA_RX_TX_DBM": [("-10", False), ("-9", True), ("22", True), ("23", False),
                        ("10.5f", False), ("246", False)],
     "LORA_FREQ_MHZ": BEACON_CASES["WSPD_LORA_FREQ_MHZ"],
-    "DISPLAY_PAGE_SECONDS": [("0", False), ("1", True), ("3600", True), ("3601", False)],
+    "DISPLAY_PAGE_SECONDS": [("0", False), ("1", True), ("3600", True), ("3601", False),
+                             ("65537", False), ("5.5f", False), ("-1LL", False)],
     "WIFI_CONNECT_TIMEOUT_MS": [("0UL", True), ("2147483647UL", True),
-                                ("2147483648UL", False)],
+                                ("2147483648UL", False), ("-1LL", False),
+                                ("1.5f", False), ("0x100000001ULL", False)],
+    "DISPLAY_PERIODIC_REFRESH_MS": [("0UL", False), ("1UL", True),
+                                    ("2147483647UL", True), ("2147483648UL", False),
+                                    ("-1LL", False), ("1.5f", False),
+                                    ("0x100000001ULL", False)],
     "TOUCH_POLL_MS": [("0UL", False), ("1UL", True), ("2147483647UL", True),
-                      ("2147483648UL", False)],
+                      ("2147483648UL", False), ("-1LL", False),
+                      ("1.5f", False), ("0x100000001ULL", False)],
     "TOUCH_DEBOUNCE_MS": [("0UL", True), ("2147483647UL", True),
-                          ("2147483648UL", False)],
+                          ("2147483648UL", False), ("-1LL", False),
+                          ("1.5f", False), ("0x100000001ULL", False)],
+    "TOUCH_RELEASE_STABLE_MS": [("0UL", True), ("2147483647UL", True),
+                                ("2147483648UL", False), ("-1LL", False),
+                                ("1.5f", False), ("0x100000001ULL", False)],
+    "SPD_LOCAL_POLL_MS": [("0UL", False), ("1UL", True), ("2147483647UL", True),
+                          ("2147483648UL", False), ("-1LL", False),
+                          ("1.5f", False), ("0x100000001ULL", False)],
+    "SPD_LOCAL_DEBOUNCE_MS": [("0UL", True), ("2147483647UL", True),
+                              ("2147483648UL", False), ("-1LL", False),
+                              ("1.5f", False), ("0x100000001ULL", False)],
     "STALE_AFTER_SECONDS": [("0UL", False), ("1UL", True), ("2147483UL", True),
-                            ("2147484UL", False)],
-    "PACKET_LOSS_WINDOW_SIZE": [("0", False), ("1", True), ("65535", True)],
+                            ("2147484UL", False), ("-1LL", False),
+                            ("1.5f", False), ("0x100000001ULL", False)],
+    "PACKET_LOSS_WINDOW_SIZE": [("0", False), ("1", True), ("65535", True),
+                                ("65536", False), ("65537", False),
+                                ("-1LL", False), ("1000.5f", False)],
+    "CONFIGURED": [("2", False)],
+    "LOW_BATTERY_WARNING_ENABLED": [("true", True), ("false", True), ("2", False)],
     "LOW_BATTERY_WARNING_V": [("2.20f", True), ("4.74f", True), ("2.19f", False),
                               ("4.75f", False), ('__builtin_nanf("")', False),
                               ("__builtin_inff()", False)],
-    "ALARM_PERIOD_MS": [("0UL", False), ("2147483647UL", True), ("2147483648UL", False)],
-    "ALARM_FAIL_ON_MS": [("0UL", True), ("60000UL", True), ("60001UL", False)],
-    "ALARM_LOW_BATTERY_ON_MS": [("0UL", True), ("60000UL", True), ("60001UL", False)],
-    "RELAY_ACTIVE_LEVEL": [("HIGH", False), ("2", False)],
-    "SPD_LOCAL_ID": [("-2", False), ("-1", True), ("0", True), ("127", True), ("128", False)],
+    "ALARM_PERIOD_MS": [("0UL", False), ("2147483647UL", True), ("2147483648UL", False),
+                        ("-1LL", False), ("1.5f", False), ("0x100000001ULL", False)],
+    "ALARM_FAIL_ON_MS": [("0UL", True), ("60000UL", True), ("60001UL", False),
+                         ("-1LL", False), ("1.5f", False), ("0x100000001ULL", False)],
+    "ALARM_LOW_BATTERY_ON_MS": [("0UL", True), ("60000UL", True), ("60001UL", False),
+                                ("-1LL", False), ("1.5f", False), ("0x100000001ULL", False)],
+    "RELAY_ACTIVE_LEVEL": [("HIGH", False), ("2", False), ("0.5f", False), ("256", False)],
+    "SPD_LOCAL_ID": [("-2", False), ("-1", True), ("0", True), ("127", True), ("128", False),
+                     ("65536", False), ("-65536", False), ("0.5f", False)],
 }
 
 
@@ -256,12 +282,13 @@ def main():
         checks.check(args.host_compiler, config, guards, "server baseline", True, server=True)
         for field, cases in SERVER_CASES.items():
             for value, accepted in cases:
-                diagnostic = "Relay levels" if field == "RELAY_ACTIVE_LEVEL" else field
+                diagnostic = "Relay levels" if field == "RELAY_ACTIVE_LEVEL" and value == "HIGH" else field
                 checks.check(args.host_compiler, replace_constant(config, field, value), guards,
                              f"server {field}={value}", accepted, diagnostic, server=True)
         local = replace_constant(config, "SPD_LOCAL_ID", "0")
         for pin, accepted in [("-1", False), ("0", True), ("21", True), ("22", False),
-                              ("25", False), ("26", True), ("48", True), ("49", False)]:
+                              ("25", False), ("26", True), ("48", True), ("49", False),
+                              ("271", False), ("-256", False), ("15.5f", False)]:
             checks.check(args.host_compiler, replace_constant(local, "SPD_LOCAL_PIN", pin),
                          guards, f"server local GPIO={pin}", accepted, "SPD_LOCAL_PIN", server=True)
         checks.check(args.host_compiler, replace_constant(config, "CONFIGURED", "false"),

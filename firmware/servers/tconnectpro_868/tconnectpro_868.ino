@@ -60,7 +60,9 @@
 #include "config.example.h"
 #endif
 // BEGIN CONFIG VALIDATION
+static_assert(std::is_same<decltype(CONFIGURED), const bool>::value, "CONFIGURED must be true or false.");
 static_assert(CONFIGURED, "Configure config.h before flashing; example credentials are not usable.");
+static_assert(std::is_integral<decltype(DISPLAY_PAGE_SECONDS)>::value, "DISPLAY_PAGE_SECONDS must be an integer.");
 static_assert(DISPLAY_PAGE_SECONDS >= 1 && DISPLAY_PAGE_SECONDS <= 3600,
               "DISPLAY_PAGE_SECONDS must be 1..3600 seconds.");
 
@@ -86,12 +88,17 @@ static_assert(validConfigInterval(TOUCH_DEBOUNCE_MS, true), "TOUCH_DEBOUNCE_MS m
 static_assert(validConfigInterval(TOUCH_RELEASE_STABLE_MS, true), "TOUCH_RELEASE_STABLE_MS must be 0..2147483647 ms.");
 static_assert(validConfigInterval(SPD_LOCAL_POLL_MS), "SPD_LOCAL_POLL_MS must be 1..2147483647 ms.");
 static_assert(validConfigInterval(SPD_LOCAL_DEBOUNCE_MS, true), "SPD_LOCAL_DEBOUNCE_MS must be 0..2147483647 ms.");
+static_assert(std::is_integral<decltype(STALE_AFTER_SECONDS)>::value, "STALE_AFTER_SECONDS must be an integer.");
 static_assert(STALE_AFTER_SECONDS >= 1 && STALE_AFTER_SECONDS <= 2147483UL, "STALE_AFTER_SECONDS must be 1..2147483 seconds.");
-static_assert(PACKET_LOSS_WINDOW_SIZE >= 1, "PACKET_LOSS_WINDOW_SIZE must be 1..65535 packets.");
+static_assert(std::is_integral<decltype(PACKET_LOSS_WINDOW_SIZE)>::value, "PACKET_LOSS_WINDOW_SIZE must be an integer.");
+static_assert(PACKET_LOSS_WINDOW_SIZE >= 1 && PACKET_LOSS_WINDOW_SIZE <= 65535, "PACKET_LOSS_WINDOW_SIZE must be 1..65535 packets.");
+static_assert(std::is_same<decltype(LOW_BATTERY_WARNING_ENABLED), const bool>::value, "LOW_BATTERY_WARNING_ENABLED must be true or false.");
 static_assert(LOW_BATTERY_WARNING_V >= 2.20f && LOW_BATTERY_WARNING_V <= 4.74f, "LOW_BATTERY_WARNING_V must be 2.20..4.74 V.");
 static_assert(validConfigInterval(ALARM_PERIOD_MS), "ALARM_PERIOD_MS must be 1..2147483647 ms.");
-static_assert(ALARM_FAIL_ON_MS <= ALARM_PERIOD_MS, "ALARM_FAIL_ON_MS must be 0..ALARM_PERIOD_MS.");
-static_assert(ALARM_LOW_BATTERY_ON_MS <= ALARM_PERIOD_MS, "ALARM_LOW_BATTERY_ON_MS must be 0..ALARM_PERIOD_MS.");
+static_assert(validConfigInterval(ALARM_FAIL_ON_MS, true) && ALARM_FAIL_ON_MS <= ALARM_PERIOD_MS, "ALARM_FAIL_ON_MS must be an integer in 0..ALARM_PERIOD_MS.");
+static_assert(validConfigInterval(ALARM_LOW_BATTERY_ON_MS, true) && ALARM_LOW_BATTERY_ON_MS <= ALARM_PERIOD_MS, "ALARM_LOW_BATTERY_ON_MS must be an integer in 0..ALARM_PERIOD_MS.");
+static_assert(std::is_integral<decltype(RELAY_ACTIVE_LEVEL)>::value, "RELAY_ACTIVE_LEVEL must be an integer LOW/HIGH value.");
+static_assert(std::is_integral<decltype(RELAY_INACTIVE_LEVEL)>::value, "RELAY_INACTIVE_LEVEL must be an integer LOW/HIGH value.");
 static_assert((RELAY_ACTIVE_LEVEL == LOW || RELAY_ACTIVE_LEVEL == HIGH) &&
               (RELAY_INACTIVE_LEVEL == LOW || RELAY_INACTIVE_LEVEL == HIGH) &&
               RELAY_ACTIVE_LEVEL != RELAY_INACTIVE_LEVEL, "Relay levels must be opposite LOW/HIGH values.");
@@ -107,8 +114,10 @@ constexpr float BATTERY_VOLTAGE_STEP_V = 0.01f;
 constexpr size_t SPD_COUNT = sizeof(SPD_CONFIGS) / sizeof(SPD_CONFIGS[0]);
 constexpr bool SPD_LOCAL_ENABLED = (SPD_LOCAL_ID >= 0);
 constexpr size_t SPD_TOTAL_COUNT = SPD_COUNT + (SPD_LOCAL_ENABLED ? 1 : 0);
-static_assert(SPD_LOCAL_ID >= -1 && SPD_LOCAL_ID <= 127, "SPD_LOCAL_ID must be -1 or 0..127");
-static_assert(!SPD_LOCAL_ENABLED || ((SPD_LOCAL_PIN >= 0 && SPD_LOCAL_PIN <= 21) || (SPD_LOCAL_PIN >= 26 && SPD_LOCAL_PIN <= 48)), "SPD_LOCAL_PIN must be a valid ESP32-S3 GPIO number");
+static_assert(std::is_integral<decltype(SPD_LOCAL_ID)>::value, "SPD_LOCAL_ID must be an integer.");
+static_assert(SPD_LOCAL_ID <= 127 && (!std::is_signed<decltype(SPD_LOCAL_ID)>::value || SPD_LOCAL_ID >= -1), "SPD_LOCAL_ID must be -1 or 0..127");
+static_assert(std::is_integral<decltype(SPD_LOCAL_PIN)>::value, "SPD_LOCAL_PIN must be an integer GPIO number.");
+static_assert((SPD_LOCAL_PIN >= 0 && SPD_LOCAL_PIN <= 21) || (SPD_LOCAL_PIN >= 26 && SPD_LOCAL_PIN <= 48), "SPD_LOCAL_PIN must be a valid ESP32-S3 GPIO number");
 static_assert(SPD_TOTAL_COUNT > 0, "Configure at least one wireless SPD or enable SPD_LOCAL_ID");
 static_assert(SPD_COUNT <= 127, "Configure at most 127 wireless SPDs with unique IDs 1..127.");
 // END CONFIG VALIDATION

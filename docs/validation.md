@@ -55,8 +55,8 @@ uses the recovered full battery schematic and production Gerbers; the earlier
 partial drawings and combined PDF have been removed.
 
 Radio configuration checks (`python3 tests/check_radio_configuration.py`) execute
-the actual firmware guards: 151 compile cases accept 62 valid settings and reject
-89 invalid settings, including fractional/wrapping integers, zero/oversized keys,
+the actual firmware guards: 217 compile cases accept 72 valid settings and reject
+145 invalid settings, including fractional/wrapping integers, zero/oversized keys,
 frequency endpoints, NaN/infinity, nonce bounds and obsolete channel configs.
 Seventeen runtime cases check the actual receiver Wi-Fi validator. All three
 sketches retain fixed modem settings and initialize the configured carrier
