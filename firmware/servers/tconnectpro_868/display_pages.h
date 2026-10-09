@@ -7,9 +7,8 @@
 class SpdDisplayPages {
 public:
   static constexpr size_t ROWS_PER_PAGE = 8;
-  static constexpr uint32_t INTERVAL_MS = 5000UL;
-
-  explicit SpdDisplayPages(size_t totalRows) : totalRows_(totalRows) {}
+  SpdDisplayPages(size_t totalRows, uint32_t intervalMs)
+      : totalRows_(totalRows), intervalMs_(intervalMs) {}
 
   size_t pageCount() const { return (totalRows_ + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE; }
   size_t pageIndex() const { return pageIndex_; }
@@ -30,7 +29,7 @@ public:
       pageStartedMs_ = now;
       return false;
     }
-    if (pageCount() <= 1 || (uint32_t)(now - pageStartedMs_) < INTERVAL_MS) {
+    if (pageCount() <= 1 || (uint32_t)(now - pageStartedMs_) < intervalMs_) {
       return false;
     }
     pageIndex_ = (pageIndex_ + 1) % pageCount();
@@ -40,6 +39,7 @@ public:
 
 private:
   size_t totalRows_;
+  uint32_t intervalMs_;
   size_t pageIndex_ = 0;
   uint32_t pageStartedMs_ = 0;
 };

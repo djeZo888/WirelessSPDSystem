@@ -2,9 +2,9 @@
   WirelessSPDSystem — LILYGO T-Connect Pro V1.0, 868 MHz hardware.
   ESP32-S3-R8 / SX1262 / ST7796 222x480 LCD / CST226SE touch / relay.
 
-  Based on the supplied, hardware-tested v9 gateway:
+  Receiver features (release identity is maintained in version.h):
   - Authenticated 20-byte LoRa packets, nonce replay rejection, loss/stale tracking.
-  - LCD pages of 8 wireless/local SPD rows, cycling every 5 seconds.
+  - LCD pages of 8 wireless/local SPD rows, with a configured page interval.
   - Touch reset confirmation and mute; all configured SPDs remain monitored.
   - Fresh SPD failure: flashing LCD + relay 5 seconds per minute.
   - Fresh low battery: highlighted row + relay 500 ms per minute.
@@ -33,6 +33,9 @@
 #include <string.h>
 #include <stdarg.h>
 #include "display_pages.h"
+#include "config_types.h"
+#include "board_pins.h"
+#include "version.h"
 
 #ifndef BLACK
 #define BLACK 0x0000
@@ -48,13 +51,7 @@
 #endif
 
 
-// Deployment settings are intentionally kept out of version control.
-struct SpdConfig {
-  uint8_t id;
-  const char *friendlyName;
-  uint32_t secret;
-};
-
+// Edit only the private config.h for deployment settings.
 #if __has_include("config.h")
 #include "config.h"
 #else
@@ -62,6 +59,8 @@ struct SpdConfig {
 #include "config.example.h"
 #endif
 static_assert(CONFIGURED, "Configure config.h before flashing; example credentials are not usable.");
+static_assert(DISPLAY_PAGE_SECONDS >= 1 && DISPLAY_PAGE_SECONDS <= 3600,
+              "DISPLAY_PAGE_SECONDS must be 1..3600 seconds.");
 
 // Fixed interoperable SPD packet format.
 constexpr size_t SPD_PAYLOAD_LEN = 20;
@@ -78,46 +77,6 @@ static_assert(SPD_LOCAL_ID >= -1 && SPD_LOCAL_ID <= 127, "SPD_LOCAL_ID must be -
 static_assert(!SPD_LOCAL_ENABLED || (SPD_LOCAL_PIN >= 0 && SPD_LOCAL_PIN <= 48), "SPD_LOCAL_PIN must be a valid ESP32-S3 GPIO number");
 static_assert(SPD_TOTAL_COUNT > 0, "Configure at least one wireless SPD or enable SPD_LOCAL_ID");
 static_assert(SPD_COUNT <= 127, "Configure at most 127 wireless SPDs with unique IDs 1..127.");
-
-// =============================================================================
-// T-CONNECT PRO PIN CONFIG
-// Copied from LILYGO pin_config.h for T_Connect_Pro_V1_0.
-// =============================================================================
-
-#define IIC_SDA       39
-#define IIC_SCL       40
-
-#define SCREEN_WIDTH  222
-#define SCREEN_HEIGHT 480
-#define SCREEN_BL     46
-#define SCREEN_MOSI   11
-#define SCREEN_MISO   13
-#define SCREEN_SCLK   12
-#define SCREEN_CS     21
-#define SCREEN_DC     41
-#define SCREEN_RST    -1
-
-#define TOUCH_SDA     IIC_SDA
-#define TOUCH_SCL     IIC_SCL
-#define TOUCH_RST     47
-#define TOUCH_INT     3
-
-#define SX1262_CS     14
-#define SX1262_RST    42
-#define SX1262_SCLK   12
-#define SX1262_MOSI   11
-#define SX1262_MISO   13
-#define SX1262_BUSY   38
-#define SX1262_INT    45
-#define SX1262_DIO1   45
-
-#define RELAY_1       8
-
-// Landscape display geometry.
-// Rotation 3 is a 180-degree flip relative to the previous rotation 1 orientation.
-constexpr uint8_t DISPLAY_ROTATION = 3;
-constexpr int16_t DISPLAY_LANDSCAPE_WIDTH  = SCREEN_HEIGHT; // 480
-constexpr int16_t DISPLAY_LANDSCAPE_HEIGHT = SCREEN_WIDTH;  // 222
 
 // =============================================================================
 // DISPLAY, TOUCH, RADIO, WEB SERVER OBJECTS
@@ -137,7 +96,7 @@ Arduino_DataBus *bus = new Arduino_HWSPI(
 Arduino_GFX *lcd = new Arduino_ST7796(
   bus,
   SCREEN_RST,
-  DISPLAY_ROTATION, // landscape orientation, flipped 180 degrees from previous v4
+  DISPLAY_ROTATION, // fixed landscape orientation
   true,             // IPS
   SCREEN_WIDTH,
   SCREEN_HEIGHT,
@@ -257,9 +216,6 @@ uint32_t lastTouchPollMs = 0;
 bool touchWasDown = false;
 uint32_t lastTouchActionMs = 0;
 uint32_t lastTouchDownSampleMs = 0;
-constexpr uint32_t TOUCH_POLL_MS = 40;
-constexpr uint32_t TOUCH_DEBOUNCE_MS = 350;
-constexpr uint32_t TOUCH_RELEASE_STABLE_MS = 160;
 
 // Touch confirmation dialog state. Plain constants avoid Arduino .ino
 // auto-prototype issues with custom enum types.
@@ -273,8 +229,7 @@ bool screenDirty = true;
 uint32_t lastScreenDrawMs = 0;
 uint32_t lastFlashToggleMs = 0;
 uint32_t bootMs = 0;
-constexpr uint32_t DISPLAY_PERIODIC_REFRESH_MS = 60000UL;
-SpdDisplayPages displayPages(SPD_TOTAL_COUNT);
+SpdDisplayPages displayPages(SPD_TOTAL_COUNT, uint32_t(DISPLAY_PAGE_SECONDS) * 1000UL);
 
 // Boot progress screen state.
 uint8_t bootLineIndex = 0;
@@ -835,6 +790,8 @@ static void drawBootHeader() {
   gfx->setTextColor(BLACK);
   gfx->setCursor(4, 4);
   gfx->print("SPD Monitor booting...");
+  gfx->setCursor(gfx->width() - 4 - 6 * (sizeof(SERVER_FIRMWARE_ID) - 1), 4);
+  gfx->print(SERVER_FIRMWARE_ID);
   gfx->drawLine(0, 18, gfx->width(), 18, BLACK);
   flushDisplay();
 }
@@ -872,6 +829,8 @@ static void fatalBootError(int32_t code, const char *module, const char *text) {
     gfx->setTextColor(RED);
     gfx->setCursor(4, 4);
     gfx->print("BOOT ERROR - STOPPED");
+    gfx->setCursor(gfx->width() - 4 - 6 * (sizeof(SERVER_FIRMWARE_ID) - 1), 4);
+    gfx->print(SERVER_FIRMWARE_ID);
     gfx->drawLine(0, 18, gfx->width(), 18, RED);
 
     gfx->setCursor(4, 32);
@@ -1142,6 +1101,10 @@ static void drawStatusTable() {
                 (unsigned)SPD_TOTAL_COUNT);
   }
 
+  gfx->setTextColor(BLACK);
+  gfx->setCursor(2, 211);
+  gfx->print(SERVER_FIRMWARE_ID);
+
   drawButton(RESET_BTN_X, RESET_BTN_Y, RESET_BTN_W, RESET_BTN_H, "RESET");
   drawButton(MUTE_BTN_X, MUTE_BTN_Y, MUTE_BTN_W, MUTE_BTN_H, alarmMuted ? "UNMUTE" : "MUTE");
 
@@ -1295,7 +1258,7 @@ static bool pollTouchLandscape(bool &downOut, int16_t &xOut, int16_t &yOut) {
   }
 
   // Touch controller reports portrait coordinates: X 0..221, Y 0..479.
-  // Display is now landscape rotation=3, i.e. 180 degrees flipped from v4 rotation=1.
+  // Map native portrait touch coordinates to landscape rotation 3.
   int16_t x = (int16_t)(SCREEN_HEIGHT - 1 - rawY);
   int16_t y = (int16_t)rawX;
 
@@ -1515,6 +1478,8 @@ static String buildApiJson() {
   out += "{";
   out += "\"generated_at_ms\":" + String(millis()) + ",";
   out += "\"gateway\":{";
+  out += "\"server_version\":\"" + String(SERVER_VERSION) + "\",";
+  out += "\"firmware_id\":\"" + String(SERVER_FIRMWARE_ID) + "\",";
   out += "\"ip\":\"" + ipString() + "\",";
   out += "\"uptime_seconds\":" + String((millis() - bootMs) / 1000UL) + ",";
   out += "\"total_valid_packets\":" + String(totalValidPackets) + ",";
@@ -1594,7 +1559,7 @@ function loss(spd){if(!spd.packet_loss_window_total)return '—'; let p=Number(s
 function esc(s){return String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');}
 function rowHtml(x){let cls=rowClass(x);let id=String(x.spd_id).padStart(3,'0');let name=esc(x.friendly_name);if(x.local||x.source==='local'){return '<tr class="'+cls+'"><td class="pill">'+x.status+'</td><td>'+id+'</td><td>'+name+'</td><td colspan="7" class="local-cell">LOCAL</td></tr>';}return '<tr class="'+cls+'"><td class="pill">'+x.status+'</td><td>'+id+'</td><td>'+name+'</td><td>'+fmt(x.hardware_version)+'/'+fmt(x.firmware_version)+'</td><td>'+fmt(x.temperature_c,'C')+'</td><td>'+fmt(x.rssi_dbm,' dBm',0)+'</td><td>'+fmt(x.snr_db,' dB',1)+'</td><td>'+(x.battery_voltage_v==null?'—':Number(x.battery_voltage_v).toFixed(2)+' V'+(x.battery_low_alarm?' LOW':''))+'</td><td>'+loss(x)+'</td><td>'+age(x.age_seconds)+'</td></tr>';}
 async function load(){let r=await fetch('/api/v1/get',{cache:'no-store'}); latest=await r.json(); render();}
-function render(){let g=latest.gateway,s=latest.summary; document.getElementById('alarm').classList.toggle('hidden',!g.alarm_active); document.getElementById('alarm').textContent=g.alarm_active?((g.alarm_kind==='spd_fail'?'SPD FAIL ALARM':'LOW BATTERY ALARM')+(g.alarm_muted?' MUTED':'')):''; document.getElementById('muteBtn').textContent=g.alarm_muted?'UNMUTE':'MUTE'; document.getElementById('stats').innerHTML=['configured','seen','ok','fail','unknown','stale','low_battery'].map(k=>'<div class="stat"><b>'+k+'</b><br>'+s[k]+'</div>').join(''); document.getElementById('meta').textContent='IP '+g.ip+' • uptime '+age(g.uptime_seconds)+' • valid '+g.total_valid_packets+' • invalid '+g.total_invalid_packets+' • nonce resets '+g.nonce_resets+' • LoRa '+g.lora_freq_mhz+' MHz SF'+g.lora_sf+(g.local_spd_enabled?' • local IO'+g.local_spd_pin:''); document.getElementById('body').innerHTML=latest.spds.map(rowHtml).join('');}
+function render(){let g=latest.gateway,s=latest.summary; document.getElementById('alarm').classList.toggle('hidden',!g.alarm_active); document.getElementById('alarm').textContent=g.alarm_active?((g.alarm_kind==='spd_fail'?'SPD FAIL ALARM':'LOW BATTERY ALARM')+(g.alarm_muted?' MUTED':'')):''; document.getElementById('muteBtn').textContent=g.alarm_muted?'UNMUTE':'MUTE'; document.getElementById('stats').innerHTML=['configured','seen','ok','fail','unknown','stale','low_battery'].map(k=>'<div class="stat"><b>'+k+'</b><br>'+s[k]+'</div>').join(''); document.getElementById('meta').textContent=g.firmware_id+' • IP '+g.ip+' • uptime '+age(g.uptime_seconds)+' • valid '+g.total_valid_packets+' • invalid '+g.total_invalid_packets+' • nonce resets '+g.nonce_resets+' • LoRa '+g.lora_freq_mhz+' MHz SF'+g.lora_sf+(g.local_spd_enabled?' • local IO'+g.local_spd_pin:''); document.getElementById('body').innerHTML=latest.spds.map(rowHtml).join('');}
 async function resetNonces(){
   if(!confirm('Reset nonces and clear SPD list? Are you sure?'))return;
   let response=await fetch('/api/v1/reset_nonces',{method:'POST'});
@@ -1721,7 +1686,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println();
-  Serial.println("T-Connect Pro SPD Monitor starting");
+  Serial.printf("T-Connect Pro SPD Monitor %s starting\n", SERVER_FIRMWARE_ID);
 
   setupRelay();
   setupDisplay();

@@ -12,7 +12,7 @@ serves a local web dashboard. Battery beacons also report supply voltage.
 | --- | --- | --- | --- |
 | TX | [AC-DC beacon](hardware/ac-dc/README.md), AVR128DA32 + Wio-SX1262 | [acdc_avr128da32](firmware/beacons/acdc_avr128da32) | 1 / 1 |
 | TX | [Battery beacon](hardware/battery/README.md), AVR128DB32 + Wio-SX1262 | [battery_avr128db32](firmware/beacons/battery_avr128db32) | 2 / 0 |
-| RX | LILYGO T Connect Pro V1.0, ESP32-S3, display, 868 MHz SX1262 | [tconnectpro_868](firmware/servers/tconnectpro_868) | Accepts both TX types |
+| RX | LILYGO T Connect Pro V1.0, ESP32-S3, display, 868 MHz SX1262 | [tconnectpro_868 v0.1](firmware/servers/tconnectpro_868/README.md) | Accepts both TX types |
 
 Example settings match: **865.3 MHz, SF10, 125 kHz, CR 4/5, sync 0x12**.
 The 868 MHz label identifies the radio hardware; it is not the configured carrier.
@@ -31,9 +31,10 @@ Choose lawful frequency, airtime and transmit power for your installation.
 [Build validation](docs/validation.md) ·
 [T Connect Pro server guide](firmware/servers/tconnectpro_868/README.md)
 
-The receiver displays **eight rows per page**, cycling every **five seconds** when
-more than eight wireless/local SPDs are configured. All SPDs remain monitored,
-and the web dashboard shows the complete list. Live readings and loss
+The receiver displays **eight rows per page** when more than eight wireless/local
+SPDs are configured. Set `DISPLAY_PAGE_SECONDS` in private `config.h` before
+compiling; the default is **five seconds**. All SPDs remain monitored, and the web
+dashboard and one `GET /api/v1/get` query provide the complete list. Live readings and loss
 history are held in RAM and cleared by reboot/reset. A restarted beacon resets
 its counter; reset the receiver's nonce state to accept it again. Unknown/stale
 rows are displayed but do not activate the alarm in this firmware.

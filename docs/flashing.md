@@ -72,13 +72,21 @@ python3 tools/firmware.py setup server
 cp firmware/servers/tconnectpro_868/config.example.h firmware/servers/tconnectpro_868/config.h
 ```
 
-Edit `config.h`: set `CONFIGURED=true`, the AP password, optional Wi-Fi credentials,
-and `SPD_CONFIGS` entries with matching beacon IDs/keys and readable names.
+Edit **only `config.h`**, leaving the `.ino` unchanged: set `CONFIGURED=true`, the
+AP password, optional Wi-Fi credentials, and `SPD_CONFIGS` entries with matching
+beacon IDs/keys and readable names.
 Up to 127 wireless beacons plus one local contact can be configured. The LCD
-advances through eight-row pages every five seconds; eight or fewer stay on one
-page. Match radio settings. Set a reset API key (the web RESET button asks for it);
+advances through eight-row pages at `DISPLAY_PAGE_SECONDS` (**5** by default,
+**1–3600** allowed); eight or fewer stay on one page. The dashboard and a single
+`GET /api/v1/get` request always include the full list. Match radio settings. Set
+a reset API key (the web RESET button asks for it);
 an empty key explicitly disables reset protection. Leave `SPD_LOCAL_ID=-1`
 unless using the optional isolated local dry contact.
+
+When upgrading, copy any new display and touch settings from the updated
+`config.example.h` into your existing private `config.h`; keep your credentials
+and beacon entries. Rebuild after configuration changes. The LCD identifies this
+receiver release as **v0.1-tconnpro**; see its [changelog](../firmware/servers/tconnectpro_868/CHANGELOG.md).
 
 Connect the ESP32 USB port with a data cable, find its port with
 `arduino-cli board list`, then:
