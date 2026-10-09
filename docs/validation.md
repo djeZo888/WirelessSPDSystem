@@ -4,8 +4,8 @@ Compile-only checks completed on 9 October 2026 using synthetic credentials:
 
 | Project | Flash | Global RAM | Result |
 | --- | ---: | ---: | --- |
-| AC-DC AVR128DA32 | 39,348 / 131,072 bytes | 1,504 / 16,384 bytes | Passed |
-| Battery AVR128DB32 | 40,746 / 131,072 bytes | 1,534 / 16,384 bytes | Passed |
+| AC-DC AVR128DA32 | 40,970 / 131,072 bytes | 1,509 / 16,384 bytes | Passed |
+| Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
 | T Connect Pro v0.1 · 24 wireless, 10-second pages | 859,809 / 3,145,728 bytes | 73,192 / 327,680 bytes | Passed |
 | T Connect Pro v0.1 · 127 wireless + local | 865,005 / 3,145,728 bytes | 186,928 / 327,680 bytes | Passed |
 
@@ -38,6 +38,15 @@ version. These checks also run in CI; AddressSanitizer/UBSan check host memory
 access. Host shims do not verify physical LCD/touch, Wi-Fi transport or
 performance at scale.
 Pinned dependency code emits some compiler warnings; the builds still pass.
+
+Persistent-nonce firmware 1 is tested with
+`python3 tests/check_persistent_nonce.py`: 5,140 checks including 126 simulated
+power cuts at first provisioning and journal wrap, corruption/readback failures,
+reboot monotonicity and exhaustion. Tests run the actual identical headers used
+by both beacon sketches. Eight offline fuse-preparation tests (`python3 tests/check_nonce_flash_fuses.py`) ensure EEPROM retention
+and active BOD are established before flash upload. See
+[persistent-nonce evidence](../firmware/beacons/nonce-validation.json).
+The receiver's nonce comparison and 20-byte frame remain compatible.
 
 The original system was reported working by its author with both beacon variants.
 This repository cleanup has not flashed or tested physical boards. Battery standby

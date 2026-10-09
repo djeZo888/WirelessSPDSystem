@@ -29,3 +29,9 @@ jobs:
       - name: Check complete server API and web list
         if: matrix.target == 'server'
         run: python3 tests/check_server_api.py
+      - name: Check persistent nonce and interrupted EEPROM writes
+        if: matrix.target == 'acdc'
+        run: python3 tests/check_persistent_nonce.py
+      - name: Check EEPROM retention and BOD preparation before flash
+        if: matrix.target == 'acdc'
+        run: python3 tests/check_nonce_flash_fuses.py

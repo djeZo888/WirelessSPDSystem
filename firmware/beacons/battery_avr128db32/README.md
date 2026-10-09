@@ -5,9 +5,13 @@ Compatible with [hardware 2 · Battery beacon](../../../hardware/battery/README.
 | Packet identifier | Value |
 | --- | --- |
 | Hardware type | 2 |
-| Firmware version | 0 |
+| Firmware version | 1 |
 
 Reports SPD contact status, NTC temperature and cell voltage. Sleeps between measurements; the Force TX button requests a report.
+
+Firmware 1 keeps its 64-bit nonce across power cycles using an EEPROM journal.
+The next nonce is committed and verified before each new report; repeated copies
+of a FAIL report retain the same nonce. See [persistence and upgrade notes](../../../docs/nonce-storage.md).
 
 Copy `config.example.h` to `config.h`, set a unique beacon ID and the shared authentication key, then follow the [setup and flashing guide](../../../docs/flashing.md). Keep `config.h` private.
 

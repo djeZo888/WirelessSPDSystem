@@ -141,9 +141,12 @@ your installation's beacon count and reporting intervals.
 The receiver keeps the latest reading, nonce and loss window for each beacon
 **in RAM only**. It does not store a persistent database or a full packet log.
 Reboot clears this state. LCD/web **RESET** also clears it, preserving configured
-names and keys; the local contact is resampled immediately. Use RESET after a
-beacon reboot restarts its nonce, otherwise older nonces are rejected. LCD RESET
-requires touch confirmation.
+names and keys; the local contact is resampled immediately. Both beacon hardware
+versions at firmware 1 retain their nonce in EEPROM, so normal beacon power
+cycles do not require RESET. Migrating RAM-only firmware or replacing/erasing
+beacon EEPROM requires a safe start above the last received nonce, or an explicit
+one-time RESET; see [persistent nonce notes](../../../docs/nonce-storage.md).
+LCD RESET requires touch confirmation.
 
 With the default settings:
 
@@ -178,4 +181,5 @@ changes OK/FAIL. Check temperature, battery readings and relay/mute behavior.
 For more than eight rows, verify every page appears and an off-page FAIL still
 raises the alarm. A rejected packet in Serial usually identifies mismatched
 radio settings, an unregistered ID, a wrong key or an old nonce; compare both
-device configurations and use RESET when the beacon has restarted.
+device configurations. Normal restarts with persistent beacon firmware need no
+RESET; follow the migration notes when replacing or erasing beacon EEPROM.

@@ -63,6 +63,14 @@ DxCore upload recipe's fuse settings. Inspect existing BOD/watchdog/fuse state
 on the first target; these compile settings do not qualify battery clock/voltage
 behavior. Avoid casual **Burn Bootloader**, which can erase the chip.
 
+Both beacon builds are firmware 1 with persistent nonces. The CLI sets and
+verifies EESAVE before flash erase and continuous active BOD at 1.9 V before
+upload (battery BOD is sampled at 32 Hz in sleep). Manual IDE/programmer uploads
+must establish these fuses before erasing. Keep EEPROM intact on future updates.
+For an ID previously received with RAM-only firmware, set `WSPD_NONCE_START`
+above its last received nonce when installing on blank EEPROM. See the
+[journal, migration and power-loss checks](nonce-storage.md).
+
 ## Configure and flash the server
 
 Use the **LILYGO T Connect Pro V1.0 with 868 MHz SX1262**, not the 433 MHz model.
@@ -104,8 +112,9 @@ USB CDC enabled, 921600 upload; the script supplies the exact board options.
 Open the IP shown on screen/Serial. Without a Wi-Fi connection, join the configured
 fallback AP and open its displayed IP. Check the display and dashboard identify
 each beacon correctly, then test OK/FAIL, temperature, battery voltage and alarms.
-After a beacon restart, use RESET on the receiver to clear its old nonce state.
-This also clears all live readings/loss history.
+Power-cycle a persistent beacon and check that its next nonce is higher without
+using receiver RESET. RESET remains available for explicit migration/recovery
+and clears all wireless live readings/loss history.
 
 See the [server guide](../firmware/servers/tconnectpro_868/README.md) for the full
 configuration reference, LCD paging, alarms, web API, RAM storage limits and

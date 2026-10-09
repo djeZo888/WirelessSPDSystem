@@ -8,6 +8,11 @@
 // Unique within the receiver's site. 1..9 are reserved for preproduction.
 #define WSPD_BEACON_ID 10
 
+// Used only when all 512 EEPROM bytes are erased. On a previously deployed ID,
+// set this above the receiver's last nonce before the first persistent build.
+// Existing journals override this setting; preserve EEPROM on every reflash.
+#define WSPD_NONCE_START 1ULL
+
 // All beacons and the receiver must share channel and spreading factor.
 // Channel 1 = 865.3 MHz. Keep RF settings within your local legal limits.
 #define WSPD_LORA_CHANNEL_ID 1
