@@ -1,0 +1,46 @@
+{
+  "validated_utc": "2026-10-09T21:36:27.734772+00:00",
+  "firmware_versions": {
+    "hardware_1": 1,
+    "hardware_2": 1
+  },
+  "journal_bytes": 512,
+  "slots": 32,
+  "record_bytes": 16,
+  "host_checks_passed": 5140,
+  "interrupted_transactions_tested": 126,
+  "packet_vectors_passed": 8,
+  "fuse_preparation_tests_passed": 8,
+  "fuse5_patterns_tested": 256,
+  "legacy_station_workflow_tests_passed": 18,
+  "persistent_nonce_header_sha256": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753",
+  "method": "Tests execute the actual journal with mocked EEPROM, actual packet encoders/verifier with host SHA API shim, and mocked fuse operations; no USB or target write.",
+  "reproduce": [
+    "python3 tests/check_persistent_nonce.py",
+    "python3 tests/check_nonce_flash_fuses.py",
+    "python3 tests/check_packet_compatibility.py"
+  ],
+  "physical_power_loss_tested": false,
+  "target_flashed": false,
+  "limits": [
+    "Brownout fuse configuration and EEPROM retention are enforced before future uploads but have not been applied to a connected target.",
+    "First interrupted virgin journal initialization fails closed until serviced.",
+    "Erased EEPROM needs a seed above any nonce remembered by the receiver."
+  ],
+  "synthetic_compile_passed": {
+    "acdc": {
+      "flash_bytes": 40970,
+      "ram_bytes": 1509
+    },
+    "battery": {
+      "flash_bytes": 42354,
+      "ram_bytes": 1539
+    },
+    "server": {
+      "flash_bytes": 864605,
+      "ram_bytes": 186920,
+      "configuration": "127 wireless SPDs plus local SPD 0, matching current receiver validation profile"
+    }
+  },
+  "server_display_configurations_passed": 13
+}

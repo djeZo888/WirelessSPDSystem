@@ -1,8 +1,8 @@
 {
   "core": "DxCore:megaavr@1.6.2",
-  "fqbn": "DxCore:megaavr:avrdb:chip=avr128db32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=disabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,mvio=enabled,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
+  "fqbn": "DxCore:megaavr:avrdb:chip=avr128db32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=ensampslow,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,mvio=enabled,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
   "programmer": "pickit4",
   "hardware_type": 2,
-  "firmware_version": 0,
+  "firmware_version": 1,
   "note": "Compile reference; board power, fuse state and hardware reception must be checked before deployment."
 }

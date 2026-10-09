@@ -11,6 +11,7 @@
 #include <usha256.h>
 #include <math.h>
 #include <string.h>
+#include "nonce_eeprom.h"
 
 // -----------------------------------------------------------------------------
 // DEHN SPD FM wireless beacon - previous AVR128DA32 hardware + Wio-SX1262
@@ -186,8 +187,10 @@ static uint16_t normalizeAdcReadingTo10bit(uint16_t value);
 static int8_t convertRaw10ToTempC(uint16_t raw);
 static uint8_t readTempC_int8(int8_t& tempOut, uint16_t& rawOut, int16_t& adcErrOut);
 static int8_t chooseTempToTransmit(uint8_t status, int8_t latestTemp);
+static void haltNonceStorageFault() __attribute__((noreturn));
 
-static uint64_t nextNonce = 0;
+static AvrNonceStorage nonceStorage;
+static PersistentNonceJournal<AvrNonceStorage> nonceJournal(nonceStorage);
 static uint32_t nextTxMs = 0;
 static uint8_t lastSpdStatus = 1;
 static bool    haveLastGoodTemp = false;
@@ -227,7 +230,20 @@ static uint32_t pickNextIntervalMs() {
 }
 
 static uint64_t allocateNonce() {
-  return nextNonce++;
+  uint64_t nonce;
+  if (!nonceJournal.allocate(nonce)) haltNonceStorageFault();
+  return nonce;
+}
+
+// A storage fault must never turn into a replayed packet. All LEDs blink together
+// until serviced; this differs from the TX-only radio initialization indication.
+static void haltNonceStorageFault() {
+  while (true) {
+    ledOn(LED_PWR); ledOn(LED_TX); ledOn(LED_SPD);
+    delay(250);
+    ledOff(LED_PWR); ledOff(LED_TX); ledOff(LED_SPD);
+    delay(250);
+  }
 }
 
 static void packUint64LE(uint8_t* out, uint64_t value) {
@@ -569,6 +585,8 @@ void setup() {
   ledOff(LED_PWR);
   ledOff(LED_TX);
   ledOff(LED_SPD);
+
+  if (!nonceJournal.begin(WSPD_NONCE_START)) haltNonceStorageFault();
 
   // Inputs
   pinMode(PIN_SPD_STATUS, INPUT);   // external pullup/front-end assumed present

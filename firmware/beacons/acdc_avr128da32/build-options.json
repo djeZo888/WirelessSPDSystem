@@ -1,6 +1,6 @@
 {
   "core": "DxCore:megaavr@1.6.2",
-  "fqbn": "DxCore:megaavr:avrda:chip=avr128da32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=disabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
+  "fqbn": "DxCore:megaavr:avrda:chip=avr128da32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=enabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
   "programmer": "pickit4",
   "hardware_type": 1,
   "firmware_version": 1,
