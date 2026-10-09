@@ -27,11 +27,15 @@ cp firmware/beacons/acdc_avr128da32/config.example.h firmware/beacons/acdc_avr12
 # For battery hardware use firmware/beacons/battery_avr128db32 instead.
 ```
 
-Edit the local file: set a unique `WSPD_BEACON_ID` (10–127 in production),
-`WSPD_SHARED_SECRET`, radio channel, transmit power and spreading factor.
-Generate an independent nonzero random 32-bit key per beacon and register it
-in the receiver. For example, `python3 -c 'import secrets; print(hex(secrets.randbelow(0xFFFFFFFF)+1))'`.
-The example key is zero and compilation rejects it.
+Edit the local file's **per-server** section: set `WSPD_SHARED_SECRET`,
+`WSPD_LORA_FREQ_MHZ` and `WSPD_LORA_SF` to the home's shared settings. Then set
+the **per-SPD** section: a unique `WSPD_BEACON_ID` (10–127 in production),
+`WSPD_LORA_TX_DBM` and the initial nonce if migrating an existing device.
+Generate one nonzero random four-byte key for the home and repeat it in each
+receiver registration. For example,
+`python3 -c 'import secrets; print("0x%08XUL" % (secrets.randbelow(0xFFFFFFFF)+1))'`.
+The example key is zero and compilation rejects it. Every field's limits are in
+the config comments and the [configuration reference](radio-configuration.md).
 
 **Programming connection:** use Microchip PICkit 4 in AVR/UPDI mode. Keep the AC
 input disconnected; program the board from an isolated regulated 3.3 V supply
@@ -86,11 +90,17 @@ beacon IDs/keys and readable names.
 Up to 127 wireless beacons plus one local contact can be configured. The LCD
 advances through eight-row pages at `DISPLAY_PAGE_SECONDS` (**5** by default,
 **1–3600** allowed); eight or fewer stay on one page. The dashboard and a single
-`GET /api/v1/get` request always include the full list. Match radio settings.
+`GET /api/v1/get` request always include the full list. Set `LORA_FREQ_MHZ` and
+`LORA_SF` to match the home's beacons. The other modem parameters are fixed in
+the sketches and absent from config files.
 Leave `SPD_LOCAL_ID=-1`
 unless using the optional isolated local dry contact.
 
-When upgrading, copy any new display and touch settings from the updated
+When upgrading from channel-based beacon examples, replace
+`WSPD_LORA_CHANNEL_ID` with `WSPD_LORA_FREQ_MHZ`; channel 1 was **865.3 MHz**.
+For an existing receiver config, remove `LORA_BW_KHZ`, `LORA_CR`,
+`LORA_SYNCWORD`, `LORA_PREAMBLE` and `LORA_CRC_ENABLED`; the sketch defines them.
+Copy any new display and touch settings from the updated
 `config.example.h` into your existing private `config.h`; keep your credentials
 and beacon entries. Rebuild after configuration changes. The LCD identifies this
 receiver release as **v0.1-tconnpro**; see its [changelog](../firmware/servers/tconnectpro_868/CHANGELOG.md).

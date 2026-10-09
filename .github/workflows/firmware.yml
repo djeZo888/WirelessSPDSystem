@@ -35,3 +35,6 @@ jobs:
       - name: Check EEPROM retention and BOD preparation before flash
         if: matrix.target == 'acdc'
         run: python3 tests/check_nonce_flash_fuses.py
+      - name: Check radio and configuration boundaries
+        if: matrix.target == 'acdc'
+        run: python3 tests/check_radio_configuration.py

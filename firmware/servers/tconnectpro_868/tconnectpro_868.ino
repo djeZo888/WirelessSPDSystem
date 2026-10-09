@@ -32,6 +32,7 @@
 #include "mbedtls/sha256.h"
 #include <string.h>
 #include <stdarg.h>
+#include <type_traits>
 #include "display_pages.h"
 #include "config_types.h"
 #include "board_pins.h"
@@ -58,9 +59,49 @@
 #error "Copy config.example.h to config.h, configure your gateway, then set CONFIGURED=true."
 #include "config.example.h"
 #endif
+// BEGIN CONFIG VALIDATION
+static_assert(std::is_same<decltype(CONFIGURED), const bool>::value, "CONFIGURED must be true or false.");
 static_assert(CONFIGURED, "Configure config.h before flashing; example credentials are not usable.");
+static_assert(std::is_integral<decltype(DISPLAY_PAGE_SECONDS)>::value, "DISPLAY_PAGE_SECONDS must be an integer.");
 static_assert(DISPLAY_PAGE_SECONDS >= 1 && DISPLAY_PAGE_SECONDS <= 3600,
               "DISPLAY_PAGE_SECONDS must be 1..3600 seconds.");
+
+// Fixed modem parameters shared by both beacon hardware versions.
+constexpr float LORA_BW_KHZ = 125.0f;
+constexpr uint8_t LORA_CR = 5; // coding rate 4/5
+constexpr uint8_t LORA_SYNCWORD = 0x12;
+constexpr uint16_t LORA_PREAMBLE = 8;
+constexpr bool LORA_CRC_ENABLED = true;
+static_assert(LORA_FREQ_MHZ >= 863.0625f && LORA_FREQ_MHZ <= 869.9375f,
+              "LORA_FREQ_MHZ must be 863.0625..869.9375 MHz for 125 kHz bandwidth.");
+static_assert(std::is_integral<decltype(LORA_SF)>::value, "LORA_SF must be an integer.");
+static_assert(LORA_SF >= 5 && LORA_SF <= 12, "LORA_SF must be 5..12 and match every beacon.");
+static_assert(std::is_integral<decltype(LORA_RX_TX_DBM)>::value, "LORA_RX_TX_DBM must be an integer.");
+static_assert(LORA_RX_TX_DBM >= -9 && LORA_RX_TX_DBM <= 22, "LORA_RX_TX_DBM must be -9..22 dBm.");
+static_assert(sizeof(SpdConfig::secret) == 4, "Every beacon secret must occupy exactly four bytes.");
+
+// Millisecond intervals are checked before runtime timer arithmetic.
+static_assert(validConfigInterval(WIFI_CONNECT_TIMEOUT_MS, true), "WIFI_CONNECT_TIMEOUT_MS must be 0..2147483647 ms.");
+static_assert(validConfigInterval(DISPLAY_PERIODIC_REFRESH_MS), "DISPLAY_PERIODIC_REFRESH_MS must be 1..2147483647 ms.");
+static_assert(validConfigInterval(TOUCH_POLL_MS), "TOUCH_POLL_MS must be 1..2147483647 ms.");
+static_assert(validConfigInterval(TOUCH_DEBOUNCE_MS, true), "TOUCH_DEBOUNCE_MS must be 0..2147483647 ms.");
+static_assert(validConfigInterval(TOUCH_RELEASE_STABLE_MS, true), "TOUCH_RELEASE_STABLE_MS must be 0..2147483647 ms.");
+static_assert(validConfigInterval(SPD_LOCAL_POLL_MS), "SPD_LOCAL_POLL_MS must be 1..2147483647 ms.");
+static_assert(validConfigInterval(SPD_LOCAL_DEBOUNCE_MS, true), "SPD_LOCAL_DEBOUNCE_MS must be 0..2147483647 ms.");
+static_assert(std::is_integral<decltype(STALE_AFTER_SECONDS)>::value, "STALE_AFTER_SECONDS must be an integer.");
+static_assert(STALE_AFTER_SECONDS >= 1 && STALE_AFTER_SECONDS <= 2147483UL, "STALE_AFTER_SECONDS must be 1..2147483 seconds.");
+static_assert(std::is_integral<decltype(PACKET_LOSS_WINDOW_SIZE)>::value, "PACKET_LOSS_WINDOW_SIZE must be an integer.");
+static_assert(PACKET_LOSS_WINDOW_SIZE >= 1 && PACKET_LOSS_WINDOW_SIZE <= 65535, "PACKET_LOSS_WINDOW_SIZE must be 1..65535 packets.");
+static_assert(std::is_same<decltype(LOW_BATTERY_WARNING_ENABLED), const bool>::value, "LOW_BATTERY_WARNING_ENABLED must be true or false.");
+static_assert(LOW_BATTERY_WARNING_V >= 2.20f && LOW_BATTERY_WARNING_V <= 4.74f, "LOW_BATTERY_WARNING_V must be 2.20..4.74 V.");
+static_assert(validConfigInterval(ALARM_PERIOD_MS), "ALARM_PERIOD_MS must be 1..2147483647 ms.");
+static_assert(validConfigInterval(ALARM_FAIL_ON_MS, true) && ALARM_FAIL_ON_MS <= ALARM_PERIOD_MS, "ALARM_FAIL_ON_MS must be an integer in 0..ALARM_PERIOD_MS.");
+static_assert(validConfigInterval(ALARM_LOW_BATTERY_ON_MS, true) && ALARM_LOW_BATTERY_ON_MS <= ALARM_PERIOD_MS, "ALARM_LOW_BATTERY_ON_MS must be an integer in 0..ALARM_PERIOD_MS.");
+static_assert(std::is_integral<decltype(RELAY_ACTIVE_LEVEL)>::value, "RELAY_ACTIVE_LEVEL must be an integer LOW/HIGH value.");
+static_assert(std::is_integral<decltype(RELAY_INACTIVE_LEVEL)>::value, "RELAY_INACTIVE_LEVEL must be an integer LOW/HIGH value.");
+static_assert((RELAY_ACTIVE_LEVEL == LOW || RELAY_ACTIVE_LEVEL == HIGH) &&
+              (RELAY_INACTIVE_LEVEL == LOW || RELAY_INACTIVE_LEVEL == HIGH) &&
+              RELAY_ACTIVE_LEVEL != RELAY_INACTIVE_LEVEL, "Relay levels must be opposite LOW/HIGH values.");
 
 // Fixed interoperable SPD packet format.
 constexpr size_t SPD_PAYLOAD_LEN = 20;
@@ -73,10 +114,13 @@ constexpr float BATTERY_VOLTAGE_STEP_V = 0.01f;
 constexpr size_t SPD_COUNT = sizeof(SPD_CONFIGS) / sizeof(SPD_CONFIGS[0]);
 constexpr bool SPD_LOCAL_ENABLED = (SPD_LOCAL_ID >= 0);
 constexpr size_t SPD_TOTAL_COUNT = SPD_COUNT + (SPD_LOCAL_ENABLED ? 1 : 0);
-static_assert(SPD_LOCAL_ID >= -1 && SPD_LOCAL_ID <= 127, "SPD_LOCAL_ID must be -1 or 0..127");
-static_assert(!SPD_LOCAL_ENABLED || (SPD_LOCAL_PIN >= 0 && SPD_LOCAL_PIN <= 48), "SPD_LOCAL_PIN must be a valid ESP32-S3 GPIO number");
+static_assert(std::is_integral<decltype(SPD_LOCAL_ID)>::value, "SPD_LOCAL_ID must be an integer.");
+static_assert(SPD_LOCAL_ID <= 127 && (!std::is_signed<decltype(SPD_LOCAL_ID)>::value || SPD_LOCAL_ID >= -1), "SPD_LOCAL_ID must be -1 or 0..127");
+static_assert(std::is_integral<decltype(SPD_LOCAL_PIN)>::value, "SPD_LOCAL_PIN must be an integer GPIO number.");
+static_assert((SPD_LOCAL_PIN >= 0 && SPD_LOCAL_PIN <= 21) || (SPD_LOCAL_PIN >= 26 && SPD_LOCAL_PIN <= 48), "SPD_LOCAL_PIN must be a valid ESP32-S3 GPIO number");
 static_assert(SPD_TOTAL_COUNT > 0, "Configure at least one wireless SPD or enable SPD_LOCAL_ID");
 static_assert(SPD_COUNT <= 127, "Configure at most 127 wireless SPDs with unique IDs 1..127.");
+// END CONFIG VALIDATION
 
 // =============================================================================
 // DISPLAY, TOUCH, RADIO, WEB SERVER OBJECTS
@@ -391,6 +435,28 @@ static void applyLocalSpdState(bool ok, bool force) {
 }
 
 static bool validateSpdConfig() {
+  if (!WIFI_SSID || !WIFI_PASSWORD || !FALLBACK_AP_SSID || !FALLBACK_AP_PASSWORD ||
+      strlen(WIFI_SSID) > 32 || strlen(FALLBACK_AP_SSID) < 1 || strlen(FALLBACK_AP_SSID) > 32) {
+    snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "WiFi SSID: station 0..32, AP 1..32 bytes");
+    lastSetupFailureCode = -1;
+    return false;
+  }
+  const size_t stationPasswordLength = strlen(WIFI_PASSWORD);
+  bool stationHexKey = (stationPasswordLength == 64);
+  if (stationHexKey) {
+    for (size_t i = 0; i < stationPasswordLength; i++) {
+      const char c = WIFI_PASSWORD[i];
+      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+        stationHexKey = false;
+        break;
+      }
+    }
+  }
+  if (stationPasswordLength != 0 && !(stationPasswordLength >= 8 && stationPasswordLength <= 63) && !stationHexKey) {
+    snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "WiFi password: empty, 8..63 chars or 64 hex");
+    lastSetupFailureCode = -1;
+    return false;
+  }
   const size_t apPasswordLength = strlen(FALLBACK_AP_PASSWORD);
   if (apPasswordLength < 8 || apPasswordLength > 63 ||
       strcmp(FALLBACK_AP_PASSWORD, "CHANGE_ME_AP_PASSWORD") == 0) {
@@ -405,6 +471,11 @@ static bool validateSpdConfig() {
       lastSetupFailureCode = -1;
       return false;
     }
+    if (!SPD_CONFIGS[i].friendlyName || SPD_CONFIGS[i].friendlyName[0] == '\0') {
+      snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "Configure nonempty beacon names");
+      lastSetupFailureCode = SPD_CONFIGS[i].id;
+      return false;
+    }
     for (size_t j = 0; j < i; j++) {
       if (SPD_CONFIGS[i].id == SPD_CONFIGS[j].id) {
         snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "Duplicate LoRa SPD ID %u", SPD_CONFIGS[i].id);
@@ -415,6 +486,12 @@ static bool validateSpdConfig() {
   }
 
   if (!SPD_LOCAL_ENABLED) return true;
+
+  if (!SPD_LOCAL_FRIENDLYNAME || SPD_LOCAL_FRIENDLYNAME[0] == '\0') {
+    snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "Configure nonempty local SPD name");
+    lastSetupFailureCode = SPD_LOCAL_ID;
+    return false;
+  }
 
   if (SPD_LOCAL_ID < 0 || SPD_LOCAL_ID > 127) {
     snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "SPD_LOCAL_ID must be -1 or 0..127");
@@ -669,6 +746,7 @@ static bool setupLoRa() {
   if (!loraApplyStep("setCodingRate", radio.setCodingRate(LORA_CR))) return false;
   if (!loraApplyStep("setSyncWord", radio.setSyncWord(LORA_SYNCWORD))) return false;
   if (!loraApplyStep("setPreambleLength", radio.setPreambleLength(LORA_PREAMBLE))) return false;
+  if (!loraApplyStep("setOutputPower", radio.setOutputPower(LORA_RX_TX_DBM))) return false;
   if (!loraApplyStep("explicitHeader", radio.explicitHeader())) return false;
 
   int16_t state;
@@ -680,10 +758,10 @@ static bool setupLoRa() {
   if (!loraApplyStep("setCRC", state)) return false;
   if (!loraApplyStep("startReceive", radio.startReceive())) return false;
 
-  Serial.printf("[LoRa] RX ready: %.1f MHz SF%u BW%.1fkHz CR4/%u sync=0x%02X preamble=%u CRC=%s\n",
+  Serial.printf("[LoRa] RX ready: %.4f MHz SF%u BW%.1fkHz CR4/%u sync=0x%02X preamble=%u CRC=%s\n",
                 LORA_FREQ_MHZ, LORA_SF, LORA_BW_KHZ, LORA_CR, LORA_SYNCWORD, LORA_PREAMBLE,
                 LORA_CRC_ENABLED ? "on" : "off");
-  bootLogf(DARKGREEN, "LoRa ready: %.1fMHz SF%u BW%.0fk", LORA_FREQ_MHZ, LORA_SF, LORA_BW_KHZ);
+  bootLogf(DARKGREEN, "LoRa ready: %.4fMHz SF%u BW%.0fk", LORA_FREQ_MHZ, LORA_SF, LORA_BW_KHZ);
   loraInitialized = true;
   return true;
 }
@@ -857,7 +935,7 @@ static void drawStatusTable() {
   gfx->setTextSize(1);
   gfx->setTextColor(BLACK);
   gfx->setCursor(2, 2);
-  gfx->printf("SPD Monitor  LoRa %.1f SF%u  IP %s", LORA_FREQ_MHZ, LORA_SF, ipString().c_str());
+  gfx->printf("SPD Monitor  LoRa %.4f SF%u  IP %s", LORA_FREQ_MHZ, LORA_SF, ipString().c_str());
 
   gfx->setCursor(2, 12);
   if (alarmKind == ALARM_SPD_FAIL) {
@@ -1370,7 +1448,7 @@ static String buildApiJson() {
   out += "\"total_old_nonce_packets\":" + String(totalOldNoncePackets) + ",";
   out += "\"total_auth_rejects\":" + String(totalAuthRejects) + ",";
   out += "\"total_unconfigured_rejects\":" + String(totalUnconfiguredRejects) + ",";
-  out += "\"lora_freq_mhz\":" + String(LORA_FREQ_MHZ, 1) + ",";
+  out += "\"lora_freq_mhz\":" + String(LORA_FREQ_MHZ, 4) + ",";
   out += "\"lora_sf\":" + String(LORA_SF) + ",";
   out += "\"lora_bw_khz\":" + String(LORA_BW_KHZ, 1) + ",";
   out += "\"local_spd_enabled\":" + String(SPD_LOCAL_ENABLED ? "true" : "false") + ",";
@@ -1559,7 +1637,7 @@ void setup() {
            (unsigned)SPD_COUNT,
            (unsigned)(SPD_LOCAL_ENABLED ? 1 : 0),
            (unsigned long)STALE_AFTER_SECONDS);
-  bootLogf(BLACK, "Radio cfg: %.1fMHz SF%u BW%.0fk CR4/%u", LORA_FREQ_MHZ, LORA_SF, LORA_BW_KHZ, LORA_CR);
+  bootLogf(BLACK, "Radio cfg: %.4fMHz SF%u BW%.0fk CR4/%u", LORA_FREQ_MHZ, LORA_SF, LORA_BW_KHZ, LORA_CR);
   setupLocalSpd();
 
   bootLogLine(BLACK, "Touch: initializing CST226SE");

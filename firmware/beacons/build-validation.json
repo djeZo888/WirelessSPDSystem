@@ -1,5 +1,5 @@
 {
-  "validated_utc": "2026-10-09T21:29:56.931998+00:00",
+  "validated_utc": "2026-10-09T22:26:18.507723+00:00",
   "versions": {
     "Arduino_CLI": "1.5.1",
     "DxCore": "1.6.2",
@@ -10,7 +10,7 @@
   "builds": [
     {
       "sketch": "acdc_avr128da32",
-      "source_sha256": "6584b255d179823a5c332740577db800dd84e726b1f9bc751bb3c5159066faa2",
+      "source_sha256": "633c4952fd2969baf8d20739c2327090349c11700f4b517fa0291af42e418ef3",
       "fqbn": "DxCore:megaavr:avrda:chip=avr128da32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=enabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
       "example_config_sf": 10,
       "validation_config": "Synthetic non-production 32-bit secret; not flashed or included in this source tree.",
@@ -19,22 +19,23 @@
         "Sketch uses 40970 bytes (31%) of program storage space. Maximum is 131072 bytes.",
         "Global variables use 1509 bytes (9%) of dynamic memory, leaving 14875 bytes for local variables. Maximum is 16384 bytes."
       ],
-      "missing_config_guard_passed": true,
       "zero_secret_guard_passed": true,
       "source_files_sha256": {
-        "acdc_avr128da32.ino": "6584b255d179823a5c332740577db800dd84e726b1f9bc751bb3c5159066faa2",
+        "acdc_avr128da32.ino": "633c4952fd2969baf8d20739c2327090349c11700f4b517fa0291af42e418ef3",
         "build-options.json": "53eb8927354f460c1e9f5b94236725df0303bcd32fe80593eb4ceda13cc6c275",
-        "config.example.h": "817e0e7f917ad8f757402af8fa476ed00c924c05c6480a8e358559f051b36306",
-        "nonce_eeprom.h": "e2e2d448c75bb2ea6307c15b8c28489f2269e578a64472f55ad3b9b98af7cc03",
+        "config.example.h": "ae261563ae7834f96292d509eaba105496f48fcde281493850286e63b35cbfe8",
+        "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
         "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
       },
       "firmware_version": 1,
-      "validation_method": "tools/firmware.py validate with synthetic config and pinned local dependencies",
-      "zero_nonce_guard_passed": true
+      "validation_method": "tools/firmware.py validate with pinned isolated dependencies; tests/check_radio_configuration.py executes actual config guards",
+      "zero_nonce_guard_passed": true,
+      "missing_config_guard_present": true,
+      "radio_configuration_guards_passed": true
     },
     {
       "sketch": "battery_avr128db32",
-      "source_sha256": "6f14904e7ce1d406ee47748434e77014a995492129ab1c6bf066793b26227e93",
+      "source_sha256": "b05bec324587527f645a182ada883a519f7e95754eb0987a0b03cdbb4a6533be",
       "fqbn": "DxCore:megaavr:avrdb:chip=avr128db32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=ensampslow,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,mvio=enabled,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
       "example_config_sf": 10,
       "validation_config": "Synthetic non-production 32-bit secret; not flashed or included in this source tree.",
@@ -43,19 +44,20 @@
         "Sketch uses 42354 bytes (32%) of program storage space. Maximum is 131072 bytes.",
         "Global variables use 1539 bytes (9%) of dynamic memory, leaving 14845 bytes for local variables. Maximum is 16384 bytes."
       ],
-      "missing_config_guard_passed": true,
       "zero_secret_guard_passed": true,
-      "validation_method": "tools/firmware.py validate with synthetic config and pinned local dependencies",
+      "validation_method": "tools/firmware.py validate with pinned isolated dependencies; tests/check_radio_configuration.py executes actual config guards",
       "compile_warnings": [],
       "source_files_sha256": {
-        "battery_avr128db32.ino": "6f14904e7ce1d406ee47748434e77014a995492129ab1c6bf066793b26227e93",
+        "battery_avr128db32.ino": "b05bec324587527f645a182ada883a519f7e95754eb0987a0b03cdbb4a6533be",
         "build-options.json": "5fddbdda7b9b62c23d0c134d059ca536c57b91826c8d5848fcb477df23a71ace",
-        "config.example.h": "3bc000aafd3b64817b9ff4723f4399e056164ae36904dceea2401d1855ec174f",
-        "nonce_eeprom.h": "e2e2d448c75bb2ea6307c15b8c28489f2269e578a64472f55ad3b9b98af7cc03",
+        "config.example.h": "ae261563ae7834f96292d509eaba105496f48fcde281493850286e63b35cbfe8",
+        "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
         "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
       },
       "firmware_version": 1,
-      "zero_nonce_guard_passed": true
+      "zero_nonce_guard_passed": true,
+      "missing_config_guard_present": true,
+      "radio_configuration_guards_passed": true
     }
   ],
   "hardware_flash_performed": false,

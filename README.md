@@ -21,13 +21,15 @@ Choose lawful frequency, airtime and transmit power for your installation.
 ## Start here
 
 1. Follow [flashing and configuration](docs/flashing.md).
-2. Assign each beacon a unique ID (10–127 for production) and a random nonzero
-   32-bit secret; register the same ID/key in the receiver. Configure Wi-Fi/AP access.
+2. Choose a random nonzero four-byte secret, frequency and SF for the home;
+   copy them to its receiver and beacons. Assign each beacon a unique production
+   ID (10–127), register each ID/key in the receiver, and configure Wi-Fi/AP access.
 3. Verify real OK/FAIL contact transitions, both telemetry types and alarms on
    the display and dashboard before deployment.
 
 [Schematics and pin maps](hardware/README.md) ·
 [Packet format and authentication](docs/protocol.md) ·
+[Configuration ranges and shared radio settings](docs/radio-configuration.md) ·
 [Build validation](docs/validation.md) ·
 [T Connect Pro server guide](firmware/servers/tconnectpro_868/README.md)
 

@@ -35,8 +35,9 @@ the `.ino` does not need editing:
 
 | Setting | Required configuration |
 | --- | --- |
-| `SPD_CONFIGS` | One `{ ID, "name", key }` per beacon. Unique IDs **1–127** and nonzero 32-bit keys must match the beacon configurations. |
-| `LORA_*` | Match every beacon's frequency, SF, bandwidth, coding rate, sync word, preamble and CRC. Defaults: **865.3 MHz, SF10, 125 kHz, CR 4/5, sync 0x12**. |
+| `SPD_CONFIGS` | One `{ ID, "name", key }` per beacon. Unique IDs **1–127** (production **10–127**) and nonzero four-byte keys must match the beacon configurations. |
+| `LORA_FREQ_MHZ`, `LORA_SF` | Match every beacon: carrier **863.0625–869.9375 MHz**, SF **5–12**. Defaults **865.3 MHz / SF10**. Bandwidth, coding rate, sync word, preamble and CRC are fixed in the sketch. |
+| `LORA_RX_TX_DBM` | Radio initialization power: integer **−9 to +22 dBm**, default **10**. Does not have to match beacon TX power; this receiver does not send acknowledgements. |
 | `WIFI_SSID`, `WIFI_PASSWORD` | Optional station credentials. Empty SSID uses the fallback access point. |
 | `FALLBACK_AP_SSID`, `FALLBACK_AP_PASSWORD` | Choose an AP name and a password of **8–63 characters**, even when using station Wi-Fi. |
 | `SPD_LOCAL_ID` | Leave **-1** to disable the local input, or choose an unused ID **0–127**. ID 0 is available only for the local contact, allowing 128 total rows. |
@@ -44,10 +45,16 @@ the `.ino` does not need editing:
 | `DISPLAY_PERIODIC_REFRESH_MS`, `TOUCH_*_MS` | Optional LCD refresh and touch timing adjustments; keep the example defaults unless needed. |
 | `CONFIGURED` | Set to **true** after completing the configuration. |
 
-Use the same independent random key already assigned to each beacon. Friendly
+Use the same random four-byte secret for all beacons in the home and repeat it in their registrations. Existing per-beacon keys remain supported. Friendly
 names identify the installation; the LCD displays their first 18 characters.
 `config.h`, build images and private build manifests contain deployment secrets
 and are ignored by Git. Keep them private.
+
+All configuration limits are annotated in `config.example.h`; see the
+[shared radio and per-SPD reference](../../../docs/radio-configuration.md).
+Frequency and spreading factor must match: this SX1262 receives one of each at
+a time. Existing configs must remove `LORA_BW_KHZ`, `LORA_CR`, `LORA_SYNCWORD`,
+`LORA_PREAMBLE` and `LORA_CRC_ENABLED`, now fixed in the sketch.
 
 When upgrading an existing configuration, copy the new display and touch
 settings from `config.example.h` into your private `config.h`, preserving your

@@ -6,6 +6,8 @@
 #ifndef WSPD_NONCE_START
 #define WSPD_NONCE_START 1ULL
 #endif
+static_assert(__builtin_classify_type(WSPD_NONCE_START) == 1,
+              "WSPD_NONCE_START must be an integer with a ULL suffix.");
 static_assert(WSPD_NONCE_START > 0 && WSPD_NONCE_START < UINT64_MAX,
               "WSPD_NONCE_START must be 1..UINT64_MAX-1, for erased EEPROM only.");
 static_assert(EEPROM_SIZE >= 512, "The persistent nonce journal requires 512 EEPROM bytes.");
