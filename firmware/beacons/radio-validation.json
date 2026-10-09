@@ -1,0 +1,87 @@
+{
+  "validated_utc": "2026-10-09T22:26:18.507723+00:00",
+  "firmware_versions": {
+    "hardware_1": 1,
+    "hardware_2": 1,
+    "server": "0.1-tconnpro"
+  },
+  "carrier_mhz": {
+    "min": 863.0625,
+    "max": 869.9375,
+    "default": 865.3
+  },
+  "sf": {
+    "min": 5,
+    "max": 12,
+    "default": 10
+  },
+  "tx_dbm": {
+    "min": -9,
+    "max": 22,
+    "default": 10
+  },
+  "secret_bytes": 4,
+  "configuration_compile_checks": 151,
+  "valid_accepted": 62,
+  "invalid_rejected": 89,
+  "runtime_configuration_checks": 17,
+  "packet_vectors_passed": 8,
+  "persistent_nonce_checks_passed": 5140,
+  "fuse_preparation_tests_passed": 8,
+  "server_display_configurations_passed": 17,
+  "server_api_configurations_passed": 13,
+  "local_station_workflow_checks_passed": 21,
+  "synthetic_compile_passed": {
+    "acdc": {
+      "flash_bytes": 40970,
+      "ram_bytes": 1509
+    },
+    "battery": {
+      "flash_bytes": 42354,
+      "ram_bytes": 1539
+    },
+    "server": {
+      "flash_bytes": 862429,
+      "ram_bytes": 186920
+    }
+  },
+  "server_compile_configuration": "127 wireless SPDs plus local SPD 0",
+  "source_files_sha256": {
+    "acdc": {
+      "acdc_avr128da32.ino": "633c4952fd2969baf8d20739c2327090349c11700f4b517fa0291af42e418ef3",
+      "build-options.json": "53eb8927354f460c1e9f5b94236725df0303bcd32fe80593eb4ceda13cc6c275",
+      "config.example.h": "ae261563ae7834f96292d509eaba105496f48fcde281493850286e63b35cbfe8",
+      "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
+      "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
+    },
+    "battery": {
+      "battery_avr128db32.ino": "b05bec324587527f645a182ada883a519f7e95754eb0987a0b03cdbb4a6533be",
+      "build-options.json": "5fddbdda7b9b62c23d0c134d059ca536c57b91826c8d5848fcb477df23a71ace",
+      "config.example.h": "ae261563ae7834f96292d509eaba105496f48fcde281493850286e63b35cbfe8",
+      "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
+      "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
+    },
+    "server": {
+      "board_pins.h": "00eeb632919c71978b7572e361aadfcca23d7db974d3fdd4667848244cf177e8",
+      "build-options.json": "b9e941473e4fa612e5600cbc01828284240cd2e5570c7956213514b7cd6c8dd1",
+      "config.example.h": "7e7a7c2fe0b8b29682935c4e4643e71d884f064d33cf4521f3d0a866e9fe3616",
+      "config_types.h": "db3846604625f3b13fc33a5ad3af575afa068957d792f31729650805d040c11f",
+      "display_pages.h": "836d8777c1c6ecb949467d5768980b83b8cb15b0aa7e122ff89de45636aca6ce",
+      "tconnectpro_868.ino": "6e606f5260e7745c9e21d7c2e3b37f780e11e03612be63285f937b5aa824f9ed",
+      "version.h": "6036772dad0dfd12ec2f6a46f0dd2f1e6aca3b35649ce8baf24898d903fda9bf"
+    }
+  },
+  "target_flashed": false,
+  "physical_rf_tested": false,
+  "reproduce": [
+    "python3 tests/check_radio_configuration.py",
+    "python3 tools/firmware.py validate acdc",
+    "python3 tools/firmware.py validate battery",
+    "python3 tools/firmware.py validate server"
+  ],
+  "limits": [
+    "Carrier bounds are a project check; national/sub-band power, occupied bandwidth, antenna and airtime conditions require installation checks.",
+    "The firmware does not enforce regulatory airtime budgets.",
+    "No USB target or physical board was programmed."
+  ]
+}

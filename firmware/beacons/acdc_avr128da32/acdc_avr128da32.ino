@@ -18,17 +18,36 @@
 // Payload v2 compatibility build: adds hardware/firmware byte and voltage byte.
 // -----------------------------------------------------------------------------
 
-// ---------------------- NETWORK CONFIG ----------------------
-const uint32_t SECRET = WSPD_SHARED_SECRET;
+// ---------------------- NETWORK / DEVICE CONFIG ----------------------
+#ifdef WSPD_LORA_CHANNEL_ID
+#error "Replace WSPD_LORA_CHANNEL_ID with WSPD_LORA_FREQ_MHZ in config.h."
+#endif
+#ifndef WSPD_LORA_FREQ_MHZ
+#error "Set WSPD_LORA_FREQ_MHZ in config.h; beacon and receiver must match."
+#endif
+
+// Validate original configuration values before narrowing to packet/radio types.
+static_assert(__builtin_classify_type(WSPD_SHARED_SECRET) == 1,
+              "WSPD_SHARED_SECRET must be a 4-byte unsigned integer value.");
 static_assert(WSPD_SHARED_SECRET > 0 && WSPD_SHARED_SECRET <= 0xFFFFFFFFULL,
-              "Set a private, nonzero 32-bit WSPD_SHARED_SECRET in config.h.");
+              "WSPD_SHARED_SECRET must be 0x00000001..0xFFFFFFFF (4 bytes).");
+static_assert(__builtin_classify_type(WSPD_BEACON_ID) == 1,
+              "WSPD_BEACON_ID must be an integer.");
 static_assert(WSPD_BEACON_ID >= 1 && WSPD_BEACON_ID <= 127,
               "WSPD_BEACON_ID must be 1..127; use 10..127 for production.");
+static_assert(__builtin_classify_type(WSPD_LORA_TX_DBM) == 1,
+              "WSPD_LORA_TX_DBM must be an integer.");
 static_assert(WSPD_LORA_TX_DBM >= -9 && WSPD_LORA_TX_DBM <= 22,
               "WSPD_LORA_TX_DBM must be -9..22; obey local RF limits.");
+static_assert(__builtin_classify_type(WSPD_LORA_SF) == 1,
+              "WSPD_LORA_SF must be an integer.");
 static_assert(WSPD_LORA_SF >= 5 && WSPD_LORA_SF <= 12,
               "WSPD_LORA_SF must be 5..12 and match the receiver.");
-const uint8_t  SPD_ID = WSPD_BEACON_ID;   // 1..127 (0 reserved)
+static_assert(WSPD_LORA_FREQ_MHZ >= 863.0625f && WSPD_LORA_FREQ_MHZ <= 869.9375f,
+              "WSPD_LORA_FREQ_MHZ must be finite and within 863.0625..869.9375 MHz.");
+const uint32_t SECRET = WSPD_SHARED_SECRET;
+static_assert(sizeof(SECRET) == 4, "The packet authentication key must occupy 4 bytes.");
+const uint8_t SPD_ID = WSPD_BEACON_ID;
 
 // Payload identity byte:
 //   bits 7..4 = hardware type: 1 = previous AVR128DA32 hardware, 2 = AVR128DB32 hardware
@@ -66,17 +85,16 @@ const float TX_INTERVAL_SEC_MAX = 600.0f;
 const uint8_t SPDFAIL_RETX_COUNT = 2;      // 0 = disabled
 const float   SPDFAIL_RETX_DELAY = 3.0f;   // seconds between repeats
 
-// LoRa RF settings
-// Channel map:
-//   0=865.1  1=865.3  2=865.5  3=865.7
-//   4=865.9  5=866.1  6=866.3  7=866.5
-const uint8_t LORA_CHANNEL_ID   = WSPD_LORA_CHANNEL_ID;
-const int8_t  LORA_TX_DBM       = WSPD_LORA_TX_DBM;   // min -9, max 22
-const uint8_t LORA_SF           = WSPD_LORA_SF;
-const float   LORA_BW_KHZ       = 125.0f;
-const uint8_t LORA_CR           = 5;    // coding rate 4/5 in RadioLib naming
-const uint8_t LORA_SYNCWORD     = 0x12; // private network sync word
-const uint16_t LORA_PREAMBLE    = 8;
+// LoRa RF settings: one carrier frequency per receiver/home.
+const float   LORA_FREQ_MHZ = WSPD_LORA_FREQ_MHZ;
+const int8_t  LORA_TX_DBM   = WSPD_LORA_TX_DBM;
+const uint8_t LORA_SF       = WSPD_LORA_SF;
+// Fixed interoperable modulation settings; not deployment configuration.
+constexpr float   LORA_BW_KHZ      = 125.0f;
+constexpr uint8_t  LORA_CR          = 5;    // coding rate 4/5 in RadioLib naming
+constexpr uint8_t  LORA_SYNCWORD    = 0x12; // private network sync word
+constexpr uint16_t LORA_PREAMBLE    = 8;
+constexpr bool    LORA_CRC_ENABLED = true;
 
 // Wio-SX1262 uses an active TCXO powered from DIO3.
 // The module datasheet allows 1.7 .. 3.3 V and says DIO3 should stay about
@@ -88,13 +106,6 @@ const bool  SX1262_USE_LDO = false;
 
 // RadioLib defaults to a fairly low current limit on SX126x.
 const float SX1262_CURRENT_LIMIT_MA = 140.0f;
-
-constexpr float LORA_CHANNEL_FREQS_MHZ[] = {
-  865.1f, 865.3f, 865.5f, 865.7f,
-  865.9f, 866.1f, 866.3f, 866.5f
-};
-constexpr size_t LORA_CHANNEL_COUNT = sizeof(LORA_CHANNEL_FREQS_MHZ) / sizeof(LORA_CHANNEL_FREQS_MHZ[0]);
-static_assert(LORA_CHANNEL_ID < LORA_CHANNEL_COUNT, "Invalid LORA_CHANNEL_ID");
 
 // ---------------------- PIN MAPPING ----------------------
 // AVR128DA32 SPI0 default pins on this PCB:
@@ -545,7 +556,7 @@ static bool loraInit() {
   SPI.begin();
 
   int16_t state = radio.begin(
-    LORA_CHANNEL_FREQS_MHZ[LORA_CHANNEL_ID],
+    LORA_FREQ_MHZ,
     LORA_BW_KHZ,
     LORA_SF,
     LORA_CR,
@@ -560,7 +571,7 @@ static bool loraInit() {
   state = radio.explicitHeader();
   if (!radioOk(state)) return false;
 
-  state = radio.setCRC(2);
+  state = radio.setCRC(LORA_CRC_ENABLED ? 2 : 0);
   if (!radioOk(state)) return false;
 
   state = radio.setCurrentLimit(SX1262_CURRENT_LIMIT_MA);

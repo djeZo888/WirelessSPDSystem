@@ -6,7 +6,7 @@ Compile-only checks use synthetic credentials:
 | --- | ---: | ---: | --- |
 | AC-DC AVR128DA32 | 40,970 / 131,072 bytes | 1,509 / 16,384 bytes | Passed |
 | Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
-| T Connect Pro v0.1 · 127 wireless + local | 862,381 / 3,145,728 bytes | 186,920 / 327,680 bytes | Passed |
+| T Connect Pro v0.1 · 127 wireless + local | 862,429 / 3,145,728 bytes | 186,920 / 327,680 bytes | Passed |
 
 Pinned cores, libraries and board options are listed in the flashing guide and
 each project's `build-options.json`. Beacon
@@ -53,3 +53,13 @@ current, fuse/clock/voltage operation, RF performance, actual contact/alarm beha
 and actual board wiring remain hardware acceptance checks. The hardware guide
 uses the recovered full battery schematic and production Gerbers; the earlier
 partial drawings and combined PDF have been removed.
+
+Radio configuration checks (`python3 tests/check_radio_configuration.py`) execute
+the actual firmware guards: 151 compile cases accept 62 valid settings and reject
+89 invalid settings, including fractional/wrapping integers, zero/oversized keys,
+frequency endpoints, NaN/infinity, nonce bounds and obsolete channel configs.
+Seventeen runtime cases check the actual receiver Wi-Fi validator. All three
+sketches retain fixed modem settings and initialize the configured carrier
+directly. See [configuration and build evidence](../firmware/beacons/radio-validation.json)
+and [radio configuration](radio-configuration.md). No RF or programming operation
+is performed by these tests.
