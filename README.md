@@ -28,9 +28,12 @@ Choose lawful frequency, airtime and transmit power for your installation.
 
 [Schematics and pin maps](hardware/README.md) ·
 [Packet format and authentication](docs/protocol.md) ·
-[Build validation](docs/validation.md)
+[Build validation](docs/validation.md) ·
+[T Connect Pro server guide](firmware/servers/tconnectpro_868/README.md)
 
-The receiver supports **eight total wireless/local rows**. Live readings and loss
+The receiver displays **eight rows per page**, cycling every **five seconds** when
+more than eight wireless/local SPDs are configured. All SPDs remain monitored,
+and the web dashboard shows the complete list. Live readings and loss
 history are held in RAM and cleared by reboot/reset. A restarted beacon resets
 its counter; reset the receiver's nonce state to accept it again. Unknown/stale
 rows are displayed but do not activate the alarm in this firmware.

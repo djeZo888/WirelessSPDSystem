@@ -2,9 +2,10 @@
   WirelessSPDSystem — LILYGO T-Connect Pro V1.0, 868 MHz hardware.
   ESP32-S3-R8 / SX1262 / ST7796 222x480 LCD / CST226SE touch / relay.
 
-  Preserves the supplied, hardware-tested v9 gateway behavior:
+  Based on the supplied, hardware-tested v9 gateway:
   - Authenticated 20-byte LoRa packets, nonce replay rejection, loss/stale tracking.
-  - Up to 8 total wireless/local SPD rows, touch reset confirmation and mute.
+  - LCD pages of 8 wireless/local SPD rows, cycling every 5 seconds.
+  - Touch reset confirmation and mute; all configured SPDs remain monitored.
   - Fresh SPD failure: flashing LCD + relay 5 seconds per minute.
   - Fresh low battery: highlighted row + relay 500 ms per minute.
   - Stale/unknown devices do not trigger the relay. State is held in RAM only.
@@ -31,6 +32,7 @@
 #include "mbedtls/sha256.h"
 #include <string.h>
 #include <stdarg.h>
+#include "display_pages.h"
 
 #ifndef BLACK
 #define BLACK 0x0000
@@ -75,7 +77,7 @@ constexpr size_t SPD_TOTAL_COUNT = SPD_COUNT + (SPD_LOCAL_ENABLED ? 1 : 0);
 static_assert(SPD_LOCAL_ID >= -1 && SPD_LOCAL_ID <= 127, "SPD_LOCAL_ID must be -1 or 0..127");
 static_assert(!SPD_LOCAL_ENABLED || (SPD_LOCAL_PIN >= 0 && SPD_LOCAL_PIN <= 48), "SPD_LOCAL_PIN must be a valid ESP32-S3 GPIO number");
 static_assert(SPD_TOTAL_COUNT > 0, "Configure at least one wireless SPD or enable SPD_LOCAL_ID");
-static_assert(SPD_TOTAL_COUNT <= 8, "LCD layout is designed for up to 8 total SPDs. If local SPD is enabled, configure at most 7 LoRa SPDs.");
+static_assert(SPD_COUNT <= 127, "Configure at most 127 wireless SPDs with unique IDs 1..127.");
 
 // =============================================================================
 // T-CONNECT PRO PIN CONFIG
@@ -272,6 +274,7 @@ uint32_t lastScreenDrawMs = 0;
 uint32_t lastFlashToggleMs = 0;
 uint32_t bootMs = 0;
 constexpr uint32_t DISPLAY_PERIODIC_REFRESH_MS = 60000UL;
+SpdDisplayPages displayPages(SPD_TOTAL_COUNT);
 
 // Boot progress screen state.
 uint8_t bootLineIndex = 0;
@@ -610,6 +613,7 @@ static void resetAllSpdLiveState() {
   resetLocalSpdLiveState();
 
   nonceResets++;
+  displayPages.restart(millis());
   screenFlashRed = false;
   confirmMode = CONFIRM_NONE;
   digitalWrite(RELAY_1, RELAY_INACTIVE_LEVEL);
@@ -1016,9 +1020,10 @@ static void drawStatusTable() {
   gfx->print("AGE");
   gfx->drawLine(0, y0 + 12, gfx->width(), y0 + 12, BLACK);
 
-  for (size_t row = 0; row < SPD_TOTAL_COUNT && row < 8; row++) {
+  for (size_t row = 0; row < displayPages.rowCount(); row++) {
+    const size_t absoluteRow = displayPages.firstRow() + row;
     const int16_t y = y0 + 15 + (int16_t)row * rowH;
-    const bool rowIsLocal = SPD_LOCAL_ENABLED && row == 0;
+    const bool rowIsLocal = SPD_LOCAL_ENABLED && absoluteRow == 0;
 
     if (rowIsLocal) {
       if (redFlashFrame) {
@@ -1059,7 +1064,7 @@ static void drawStatusTable() {
       continue;
     }
 
-    const size_t i = row - (SPD_LOCAL_ENABLED ? 1 : 0);
+    const size_t i = absoluteRow - (SPD_LOCAL_ENABLED ? 1 : 0);
     const SpdConfig &cfg = SPD_CONFIGS[i];
     const SpdState &s = spdStates[i];
 
@@ -1124,6 +1129,17 @@ static void drawStatusTable() {
 
     gfx->setCursor(390, y);
     gfx->print(ageText(s));
+  }
+
+  if (displayPages.pageCount() > 1) {
+    gfx->setTextColor(BLACK);
+    gfx->setCursor(2, RESET_BTN_Y + 7);
+    gfx->printf("Page %u/%u  SPDs %u-%u/%u",
+                (unsigned)(displayPages.pageIndex() + 1),
+                (unsigned)displayPages.pageCount(),
+                (unsigned)(displayPages.firstRow() + 1),
+                (unsigned)(displayPages.firstRow() + displayPages.rowCount()),
+                (unsigned)SPD_TOTAL_COUNT);
   }
 
   drawButton(RESET_BTN_X, RESET_BTN_Y, RESET_BTN_W, RESET_BTN_H, "RESET");
@@ -1385,7 +1401,7 @@ static bool resetApiAuthorized() {
   return false;
 }
 
-static String appendLocalSpdJson(String out) {
+static void appendLocalSpdJson(String &out) {
   const char *status = effectiveLocalStatusText();
   out += "{";
   out += "\"spd_id\":" + String(SPD_LOCAL_ID) + ",";
@@ -1418,10 +1434,9 @@ static String appendLocalSpdJson(String out) {
   out += "\"age_seconds\":null,";
   out += "\"stale\":false";
   out += "}";
-  return out;
 }
 
-static String appendWirelessSpdJson(String out, size_t i) {
+static void appendWirelessSpdJson(String &out, size_t i) {
   const SpdConfig &cfg = SPD_CONFIGS[i];
   const SpdState &s = spdStates[i];
   const bool staleFlag = isStale(s);
@@ -1465,7 +1480,6 @@ static String appendWirelessSpdJson(String out, size_t i) {
   if (s.seen) out += String(ageSecondsFor(s)); else out += "null";
   out += ",\"stale\":" + String(staleFlag ? "true" : "false");
   out += "}";
-  return out;
 }
 
 static String buildApiJson() {
@@ -1497,7 +1511,7 @@ static String buildApiJson() {
   }
 
   String out;
-  out.reserve(5200);
+  out.reserve(768 + SPD_TOTAL_COUNT * 800);
   out += "{";
   out += "\"generated_at_ms\":" + String(millis()) + ",";
   out += "\"gateway\":{";
@@ -1542,12 +1556,12 @@ static String buildApiJson() {
   out += "\"spds\":[";
   bool first = true;
   if (SPD_LOCAL_ENABLED) {
-    out = appendLocalSpdJson(out);
+    appendLocalSpdJson(out);
     first = false;
   }
   for (size_t i = 0; i < SPD_COUNT; i++) {
     if (!first) out += ",";
-    out = appendWirelessSpdJson(out, i);
+    appendWirelessSpdJson(out, i);
     first = false;
   }
   out += "]}";
@@ -1748,6 +1762,8 @@ void setup() {
 
   requestScreenRedraw();
   drawStatusTable();
+  // Start timing after boot messages and the first complete table draw.
+  displayPages.restart(millis());
 }
 
 void loop() {
@@ -1758,6 +1774,9 @@ void loop() {
   handleAlarmRelay();
 
   const uint32_t now = millis();
+  if (displayPages.advance(now, confirmMode != CONFIRM_NONE)) {
+    requestScreenRedraw();
+  }
   const uint8_t alarmKind = currentAlarmKind();
   const bool failAlarm = (alarmKind == ALARM_SPD_FAIL);
 

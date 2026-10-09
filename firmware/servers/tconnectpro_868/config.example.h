@@ -21,7 +21,8 @@ constexpr uint16_t LORA_PREAMBLE = 8;
 constexpr int8_t LORA_RX_TX_DBM = 10;
 constexpr bool LORA_CRC_ENABLED = true;
 
-// Register one entry per beacon; ID and secret must match that beacon's config.h.
+// Register up to 127 beacons; ID and secret must match each beacon's config.h.
+// LCD: 8 rows per page, switching every 5 seconds when more than 8 rows exist.
 // Use unique IDs in 1..127 (0 is reserved) and independent, randomly generated nonzero uint32 keys.
 // The legacy 32-bit key and truncated SHA256 tag have limited security; see docs/protocol.md.
 static const SpdConfig SPD_CONFIGS[] = {
@@ -46,7 +47,7 @@ static const char *RESET_API_KEY = "CHANGE_ME_RESET_API_KEY";
 
 // Optional local input: 3V3 -> isolated SPD dry contact -> IO15.
 // Closed/HIGH = OK; open/LOW = FAIL. Never connect a live/mains signal.
-// Keep ID=-1 to disable. Total wireless + local rows must be <=8.
+// Keep ID=-1 to disable. The local input occupies the first row on page 1.
 constexpr int8_t SPD_LOCAL_PIN = 15;
 constexpr int16_t SPD_LOCAL_ID = -1;
 static const char *SPD_LOCAL_FRIENDLYNAME = "Local contact";

@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -80,6 +81,18 @@ def validation_config(sketch, server):
         content = content.replace("0x00000000UL", "0x7C9E4A21UL")
         content = content.replace('"CHANGE_ME_AP_PASSWORD"', '"validation-only-ap"')
         content = content.replace('"CHANGE_ME_RESET_API_KEY"', '"validation-only-reset"')
+        # Exercise the largest addressable list, including a local row and
+        # multiple LCD pages. These synthetic credentials are never flashed.
+        entries = ",\n".join(
+            f'  {{ {i}, "Validation {i}", 0x7C9E4A21UL }}' for i in range(1, 128))
+        content, count = re.subn(
+            r"static const SpdConfig SPD_CONFIGS\[\] = \{.*?\n\};",
+            "static const SpdConfig SPD_CONFIGS[] = {\n" + entries + "\n};",
+            content, flags=re.S)
+        if count != 1:
+            raise SystemExit("Cannot prepare synthetic server beacon configuration.")
+        content = re.sub(r"constexpr int16_t SPD_LOCAL_ID = -?\d+;",
+                         "constexpr int16_t SPD_LOCAL_ID = 0;", content)
     else:
         content = content.replace("0x00000000UL", "0x7C9E4A21UL")
     (sketch / "config.h").write_text(content)
