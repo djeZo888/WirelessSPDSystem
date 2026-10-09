@@ -14,8 +14,10 @@ First versioned receiver release, displayed as **v0.1-tconnpro**.
   before compiling (default 5 seconds). Eight or fewer use a single page.
 - Shows all configured SPDs on the web dashboard and in one `GET /api/v1/get`
   response, independent of LCD paging.
-- Provides relay alarms, mute controls and touch-confirmed RESET. Alarms cover
-  the full list; paging pauses while RESET confirmation is open.
+- Provides relay alarms and mute controls. Alarms cover the full list.
+- Removes the obsolete nonce-reset LCD, web and API functionality now that beacon
+  firmware 1 retains its counter across power cycles. Receiver reboot clears its
+  RAM history when recovery is needed.
 - Keeps deployment settings in private `config.h`, copied from
   `config.example.h`; users configure and build without editing the `.ino`.
 

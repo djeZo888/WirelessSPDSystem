@@ -39,7 +39,7 @@ A partially written slot is ignored when another valid committed record exists.
 A corrupt committed record, unexpected marker, nonblank journal with no valid
 record, failed readback or exhausted 64-bit range stops transmission. All three
 LEDs blink together at 250 ms on / 250 ms off until serviced. The beacon never
-silently resets its nonce on an uncertain storage state. An interruption of the
+silently reinitializes its counter on an uncertain storage state. An interruption of the
 very first journal write can leave no valid record and deliberately requires
 service; no report has been emitted yet. Recover using a known safe initial
 value after inspecting the journal, rather than automatically erasing it.
@@ -53,9 +53,9 @@ recover the old RAM-only counter from a previously deployed beacon.
 
 For an existing receiver entry, read its latest nonce and set `WSPD_NONCE_START`
 strictly higher before first installation on blank EEPROM. For example, after
-nonce 9000, use `9001ULL`. Alternatively, explicitly reset that receiver's nonce
-history once during migration; its RESET also clears other beacons' live state.
-Subsequent ordinary power cycles need neither action.
+nonce 9000, use `9001ULL`. Alternatively, restart the receiver during migration;
+this clears its RAM history and all live readings. Subsequent ordinary beacon
+power cycles preserve the counter automatically.
 
 Preserve EEPROM on every firmware update. The provided CLI flashing workflow
 reads the target's EEPROM-retention fuse, enables and verifies EESAVE **before**
@@ -83,7 +83,7 @@ exercise both actual encoders and the receiver tag verifier. See
 [validation](validation.md). No physical board was flashed for this change.
 
 Before accepting a production unit, receive a report, power-cycle it and verify
-that its next accepted nonce is greater without resetting the receiver. Repeat
+that its next accepted nonce is greater while the receiver remains running. Repeat
 with power removed near a report/EEPROM update; inspect fuse readback and the
 all-LED storage-fault indication. Journaling protects interrupted writes; active
 BOD and valid supply conditions protect CPU execution. Physical brownout, RF,

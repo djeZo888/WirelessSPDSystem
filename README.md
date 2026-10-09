@@ -35,9 +35,9 @@ The receiver displays **eight rows per page** when more than eight wireless/loca
 SPDs are configured. Set `DISPLAY_PAGE_SECONDS` in private `config.h` before
 compiling; the default is **five seconds**. All SPDs remain monitored, and the web
 dashboard and one `GET /api/v1/get` query provide the complete list. Live readings
-and loss history are held in RAM and cleared by reboot/reset. Both beacon
+and loss history are held in RAM and cleared by receiver reboot. Both beacon
 firmware versions are now 1 and retain their nonce across power cycles using an
-EEPROM journal; ordinary beacon restarts need no receiver reset. See
+EEPROM journal, preserving their counter through ordinary restarts. See
 [upgrade notes](docs/nonce-storage.md). Unknown/stale
 rows are displayed but do not activate the alarm in this firmware.
 

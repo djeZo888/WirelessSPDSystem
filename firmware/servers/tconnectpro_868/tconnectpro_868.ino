@@ -5,7 +5,7 @@
   Receiver features (release identity is maintained in version.h):
   - Authenticated 20-byte LoRa packets, nonce replay rejection, loss/stale tracking.
   - LCD pages of 8 wireless/local SPD rows, with a configured page interval.
-  - Touch reset confirmation and mute; all configured SPDs remain monitored.
+  - Touch mute; all configured SPDs remain monitored.
   - Fresh SPD failure: flashing LCD + relay 5 seconds per minute.
   - Fresh low battery: highlighted row + relay 500 ms per minute.
   - Stale/unknown devices do not trigger the relay. State is held in RAM only.
@@ -130,13 +130,6 @@ struct PacketLossWindow {
   uint16_t used = 0;
   uint16_t successes = 0;
 
-  void reset() {
-    memset(buffer, 0, sizeof(buffer));
-    head = 0;
-    used = 0;
-    successes = 0;
-  }
-
   void appendOne(bool success) {
     const uint8_t v = success ? 1 : 0;
     if (used < PACKET_LOSS_WINDOW_SIZE) {
@@ -217,12 +210,6 @@ bool touchWasDown = false;
 uint32_t lastTouchActionMs = 0;
 uint32_t lastTouchDownSampleMs = 0;
 
-// Touch confirmation dialog state. Plain constants avoid Arduino .ino
-// auto-prototype issues with custom enum types.
-constexpr uint8_t CONFIRM_NONE = 0;
-constexpr uint8_t CONFIRM_RESET = 1;
-uint8_t confirmMode = CONFIRM_NONE;
-
 bool alarmMuted = false;
 bool screenFlashRed = false;
 bool screenDirty = true;
@@ -241,7 +228,6 @@ uint32_t totalInvalidPackets = 0;
 uint32_t totalOldNoncePackets = 0;
 uint32_t totalAuthRejects = 0;
 uint32_t totalUnconfiguredRejects = 0;
-uint32_t nonceResets = 0;
 
 // Forward declarations used to avoid Arduino .ino auto-prototype ordering issues.
 static void flushDisplay();
@@ -407,9 +393,8 @@ static void applyLocalSpdState(bool ok, bool force) {
 static bool validateSpdConfig() {
   const size_t apPasswordLength = strlen(FALLBACK_AP_PASSWORD);
   if (apPasswordLength < 8 || apPasswordLength > 63 ||
-      strcmp(FALLBACK_AP_PASSWORD, "CHANGE_ME_AP_PASSWORD") == 0 ||
-      strcmp(RESET_API_KEY, "CHANGE_ME_RESET_API_KEY") == 0) {
-    snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "Configure AP password and reset API key");
+      strcmp(FALLBACK_AP_PASSWORD, "CHANGE_ME_AP_PASSWORD") == 0) {
+    snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "Configure AP password");
     lastSetupFailureCode = -1;
     return false;
   }
@@ -467,22 +452,6 @@ static void setupLocalSpd() {
   applyLocalSpdState(rawOk, true);
 
   bootLogf(BLACK, "Local SPD: ID %03d IO%d active HIGH", SPD_LOCAL_ID, SPD_LOCAL_PIN);
-}
-
-static void resetLocalSpdLiveState() {
-  if (!SPD_LOCAL_ENABLED) return;
-
-  localSpd = LocalSpdState{};
-  pinMode(SPD_LOCAL_PIN, INPUT_PULLDOWN);
-  delay(2);
-
-  const bool rawOk = isLocalOkRaw();
-  const uint32_t now = millis();
-  localSpd.rawOkLast = rawOk;
-  localSpd.stableOk = rawOk;
-  localSpd.rawChangedMs = now;
-  localSpd.lastPollMs = now;
-  applyLocalSpdState(rawOk, true);
 }
 
 static void handleLocalSpd() {
@@ -554,25 +523,6 @@ static const char *alarmKindText(uint8_t kind) {
 
 static bool isAlarmConditionActive() {
   return currentAlarmKind() != ALARM_NONE;
-}
-
-static void resetAllSpdLiveState() {
-  // Preserve configured identities/secrets, but clear every wireless runtime field.
-  // Wireless SPDs appear as UNKNOWN/never-seen until their next authenticated LoRa packet is received.
-  for (size_t i = 0; i < SPD_COUNT; i++) {
-    spdStates[i] = SpdState{};
-  }
-
-  // The local wired SPD has no nonce/history; immediately resample the GPIO so
-  // it continues to show the current dry-contact state after RESET.
-  resetLocalSpdLiveState();
-
-  nonceResets++;
-  displayPages.restart(millis());
-  screenFlashRed = false;
-  confirmMode = CONFIRM_NONE;
-  digitalWrite(RELAY_1, RELAY_INACTIVE_LEVEL);
-  Serial.printf("[RESET] Live SPD state, nonces, and packet-loss history cleared. Count=%lu\n", (unsigned long)nonceResets);
 }
 
 static String jsonEscape(const char *s) {
@@ -860,27 +810,10 @@ static void fatalBootError(int32_t code, const char *module, const char *text) {
   }
 }
 
-constexpr int16_t RESET_BTN_X = 300;
-constexpr int16_t RESET_BTN_Y = 194;
-constexpr int16_t RESET_BTN_W = 78;
-constexpr int16_t RESET_BTN_H = 24;
 constexpr int16_t MUTE_BTN_X  = 388;
 constexpr int16_t MUTE_BTN_Y  = 194;
 constexpr int16_t MUTE_BTN_W  = 92;
 constexpr int16_t MUTE_BTN_H  = 24;
-
-constexpr int16_t CONFIRM_BOX_X = 34;
-constexpr int16_t CONFIRM_BOX_Y = 42;
-constexpr int16_t CONFIRM_BOX_W = 412;
-constexpr int16_t CONFIRM_BOX_H = 112;
-constexpr int16_t CONFIRM_YES_X = 146;
-constexpr int16_t CONFIRM_YES_Y = 114;
-constexpr int16_t CONFIRM_YES_W = 84;
-constexpr int16_t CONFIRM_YES_H = 30;
-constexpr int16_t CONFIRM_NO_X  = 258;
-constexpr int16_t CONFIRM_NO_Y  = 114;
-constexpr int16_t CONFIRM_NO_W  = 84;
-constexpr int16_t CONFIRM_NO_H  = 30;
 
 static bool pointInRect(int16_t x, int16_t y, int16_t rx, int16_t ry, int16_t rw, int16_t rh) {
   return x >= rx && x < (rx + rw) && y >= ry && y < (ry + rh);
@@ -893,24 +826,6 @@ static void drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const char *l
   gfx->setTextSize(1);
   gfx->setCursor(x + 8, y + 7);
   gfx->print(label);
-}
-
-static void drawConfirmDialog() {
-  // Modal dialog drawn on top of the normal table. Touch handling ignores the
-  // underlying RESET/MUTE buttons while confirmation is active.
-  gfx->fillRect(CONFIRM_BOX_X, CONFIRM_BOX_Y, CONFIRM_BOX_W, CONFIRM_BOX_H, WHITE);
-  gfx->drawRect(CONFIRM_BOX_X, CONFIRM_BOX_Y, CONFIRM_BOX_W, CONFIRM_BOX_H, BLACK);
-  gfx->drawRect(CONFIRM_BOX_X + 1, CONFIRM_BOX_Y + 1, CONFIRM_BOX_W - 2, CONFIRM_BOX_H - 2, BLACK);
-
-  gfx->setTextColor(BLACK);
-  gfx->setTextSize(1);
-  gfx->setCursor(CONFIRM_BOX_X + 18, CONFIRM_BOX_Y + 20);
-  gfx->print("Reset nonces and clear SPD list?");
-  gfx->setCursor(CONFIRM_BOX_X + 18, CONFIRM_BOX_Y + 42);
-  gfx->print("Are you sure?");
-
-  drawButton(CONFIRM_YES_X, CONFIRM_YES_Y, CONFIRM_YES_W, CONFIRM_YES_H, "YES");
-  drawButton(CONFIRM_NO_X,  CONFIRM_NO_Y,  CONFIRM_NO_W,  CONFIRM_NO_H,  "NO");
 }
 
 static void flushDisplay() {
@@ -1092,7 +1007,7 @@ static void drawStatusTable() {
 
   if (displayPages.pageCount() > 1) {
     gfx->setTextColor(BLACK);
-    gfx->setCursor(2, RESET_BTN_Y + 7);
+    gfx->setCursor(2, MUTE_BTN_Y + 7);
     gfx->printf("Page %u/%u  SPDs %u-%u/%u",
                 (unsigned)(displayPages.pageIndex() + 1),
                 (unsigned)displayPages.pageCount(),
@@ -1105,12 +1020,7 @@ static void drawStatusTable() {
   gfx->setCursor(2, 211);
   gfx->print(SERVER_FIRMWARE_ID);
 
-  drawButton(RESET_BTN_X, RESET_BTN_Y, RESET_BTN_W, RESET_BTN_H, "RESET");
   drawButton(MUTE_BTN_X, MUTE_BTN_Y, MUTE_BTN_W, MUTE_BTN_H, alarmMuted ? "UNMUTE" : "MUTE");
-
-  if (confirmMode == CONFIRM_RESET) {
-    drawConfirmDialog();
-  }
 
   flushDisplay();
   screenDirty = false;
@@ -1299,23 +1209,7 @@ static void handleTouch() {
   touchWasDown = true;
   lastTouchActionMs = now;
 
-  if (confirmMode == CONFIRM_RESET) {
-    if (pointInRect(x, y, CONFIRM_YES_X, CONFIRM_YES_Y, CONFIRM_YES_W, CONFIRM_YES_H)) {
-      resetAllSpdLiveState();
-      requestScreenRedraw();
-    } else if (pointInRect(x, y, CONFIRM_NO_X, CONFIRM_NO_Y, CONFIRM_NO_W, CONFIRM_NO_H)) {
-      confirmMode = CONFIRM_NONE;
-      Serial.println("[RESET] Cancelled by touch confirmation");
-      requestScreenRedraw();
-    }
-    return;
-  }
-
-  if (pointInRect(x, y, RESET_BTN_X, RESET_BTN_Y, RESET_BTN_W, RESET_BTN_H)) {
-    confirmMode = CONFIRM_RESET;
-    Serial.println("[RESET] Touch confirmation requested");
-    requestScreenRedraw();
-  } else if (pointInRect(x, y, MUTE_BTN_X, MUTE_BTN_Y, MUTE_BTN_W, MUTE_BTN_H)) {
+  if (pointInRect(x, y, MUTE_BTN_X, MUTE_BTN_Y, MUTE_BTN_W, MUTE_BTN_H)) {
     alarmMuted = !alarmMuted;
     Serial.printf("[Alarm] %s\n", alarmMuted ? "Muted" : "Unmuted");
     requestScreenRedraw();
@@ -1352,17 +1246,6 @@ static void handleAlarmRelay() {
 // =============================================================================
 // WI-FI AND WEB SERVER
 // =============================================================================
-
-static bool resetApiAuthorized() {
-  if (RESET_API_KEY == nullptr || strlen(RESET_API_KEY) == 0) return true;
-  if (server.hasHeader("X-API-Key-Reset")) {
-    if (server.header("X-API-Key-Reset") == String(RESET_API_KEY)) return true;
-  }
-  if (server.hasArg("api_key")) {
-    if (server.arg("api_key") == String(RESET_API_KEY)) return true;
-  }
-  return false;
-}
 
 static void appendLocalSpdJson(String &out) {
   const char *status = effectiveLocalStatusText();
@@ -1487,7 +1370,6 @@ static String buildApiJson() {
   out += "\"total_old_nonce_packets\":" + String(totalOldNoncePackets) + ",";
   out += "\"total_auth_rejects\":" + String(totalAuthRejects) + ",";
   out += "\"total_unconfigured_rejects\":" + String(totalUnconfiguredRejects) + ",";
-  out += "\"nonce_resets\":" + String(nonceResets) + ",";
   out += "\"lora_freq_mhz\":" + String(LORA_FREQ_MHZ, 1) + ",";
   out += "\"lora_sf\":" + String(LORA_SF) + ",";
   out += "\"lora_bw_khz\":" + String(LORA_BW_KHZ, 1) + ",";
@@ -1545,7 +1427,7 @@ body{font-family:system-ui,Arial,sans-serif;margin:20px;background:#f8fafc;color
 </style>
 </head>
 <body>
-<div class="top"><div><h1>SPD Monitor</h1><div class="muted">T-Connect Pro LoRa receiver</div></div><div><button onclick="resetNonces()">RESET</button> <button id="muteBtn" onclick="toggleMute()">MUTE</button></div></div>
+<div class="top"><div><h1>SPD Monitor</h1><div class="muted">T-Connect Pro LoRa receiver</div></div><div><button id="muteBtn" onclick="toggleMute()">MUTE</button></div></div>
 <p id="alarm" class="alarm hidden">ALARM</p>
 <div id="stats" class="stats"></div>
 <table><thead><tr><th>Status</th><th>ID</th><th>Name</th><th>HW/FW</th><th>Temp</th><th>RSSI</th><th>SNR</th><th>Battery</th><th>Loss</th><th>Age</th></tr></thead><tbody id="body"></tbody></table>
@@ -1559,18 +1441,7 @@ function loss(spd){if(!spd.packet_loss_window_total)return '—'; let p=Number(s
 function esc(s){return String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');}
 function rowHtml(x){let cls=rowClass(x);let id=String(x.spd_id).padStart(3,'0');let name=esc(x.friendly_name);if(x.local||x.source==='local'){return '<tr class="'+cls+'"><td class="pill">'+x.status+'</td><td>'+id+'</td><td>'+name+'</td><td colspan="7" class="local-cell">LOCAL</td></tr>';}return '<tr class="'+cls+'"><td class="pill">'+x.status+'</td><td>'+id+'</td><td>'+name+'</td><td>'+fmt(x.hardware_version)+'/'+fmt(x.firmware_version)+'</td><td>'+fmt(x.temperature_c,'C')+'</td><td>'+fmt(x.rssi_dbm,' dBm',0)+'</td><td>'+fmt(x.snr_db,' dB',1)+'</td><td>'+(x.battery_voltage_v==null?'—':Number(x.battery_voltage_v).toFixed(2)+' V'+(x.battery_low_alarm?' LOW':''))+'</td><td>'+loss(x)+'</td><td>'+age(x.age_seconds)+'</td></tr>';}
 async function load(){let r=await fetch('/api/v1/get',{cache:'no-store'}); latest=await r.json(); render();}
-function render(){let g=latest.gateway,s=latest.summary; document.getElementById('alarm').classList.toggle('hidden',!g.alarm_active); document.getElementById('alarm').textContent=g.alarm_active?((g.alarm_kind==='spd_fail'?'SPD FAIL ALARM':'LOW BATTERY ALARM')+(g.alarm_muted?' MUTED':'')):''; document.getElementById('muteBtn').textContent=g.alarm_muted?'UNMUTE':'MUTE'; document.getElementById('stats').innerHTML=['configured','seen','ok','fail','unknown','stale','low_battery'].map(k=>'<div class="stat"><b>'+k+'</b><br>'+s[k]+'</div>').join(''); document.getElementById('meta').textContent=g.firmware_id+' • IP '+g.ip+' • uptime '+age(g.uptime_seconds)+' • valid '+g.total_valid_packets+' • invalid '+g.total_invalid_packets+' • nonce resets '+g.nonce_resets+' • LoRa '+g.lora_freq_mhz+' MHz SF'+g.lora_sf+(g.local_spd_enabled?' • local IO'+g.local_spd_pin:''); document.getElementById('body').innerHTML=latest.spds.map(rowHtml).join('');}
-async function resetNonces(){
-  if(!confirm('Reset nonces and clear SPD list? Are you sure?'))return;
-  let response=await fetch('/api/v1/reset_nonces',{method:'POST'});
-  if(response.status===403){
-    let key=prompt('Enter the reset API key configured on this gateway:');
-    if(key===null)return;
-    response=await fetch('/api/v1/reset_nonces',{method:'POST',headers:{'X-API-Key-Reset':key}});
-  }
-  if(!response.ok){alert('Reset failed (HTTP '+response.status+').');return;}
-  await load();
-}
+function render(){let g=latest.gateway,s=latest.summary; document.getElementById('alarm').classList.toggle('hidden',!g.alarm_active); document.getElementById('alarm').textContent=g.alarm_active?((g.alarm_kind==='spd_fail'?'SPD FAIL ALARM':'LOW BATTERY ALARM')+(g.alarm_muted?' MUTED':'')):''; document.getElementById('muteBtn').textContent=g.alarm_muted?'UNMUTE':'MUTE'; document.getElementById('stats').innerHTML=['configured','seen','ok','fail','unknown','stale','low_battery'].map(k=>'<div class="stat"><b>'+k+'</b><br>'+s[k]+'</div>').join(''); document.getElementById('meta').textContent=g.firmware_id+' • IP '+g.ip+' • uptime '+age(g.uptime_seconds)+' • valid '+g.total_valid_packets+' • invalid '+g.total_invalid_packets+' • LoRa '+g.lora_freq_mhz+' MHz SF'+g.lora_sf+(g.local_spd_enabled?' • local IO'+g.local_spd_pin:''); document.getElementById('body').innerHTML=latest.spds.map(rowHtml).join('');}
 async function toggleMute(){let v=latest&&latest.gateway&&latest.gateway.alarm_muted?'0':'1'; await fetch('/api/v1/mute?value='+v,{method:'POST'}); await load();}
 load(); setInterval(load,5000);
 </script>
@@ -1592,16 +1463,6 @@ static void handleApiGet() {
   sendJson(200, buildApiJson());
 }
 
-static void handleResetNonces() {
-  if (!resetApiAuthorized()) {
-    sendJson(403, "{\"error\":\"forbidden\",\"message\":\"Reset API key missing or invalid\"}");
-    return;
-  }
-  resetAllSpdLiveState();
-  requestScreenRedraw();
-  sendJson(200, "{\"status\":\"ok\",\"message\":\"Live SPD state, nonces, and packet-loss history cleared\"}");
-}
-
 static void handleMute() {
   if (server.hasArg("value")) {
     alarmMuted = server.arg("value") != "0";
@@ -1617,12 +1478,9 @@ static void handleHealthz() {
 }
 
 static bool setupWebServer() {
-  const char *headerKeys[] = {"X-API-Key-Reset"};
-  server.collectHeaders(headerKeys, 1);
   server.on("/", HTTP_GET, handleIndex);
   server.on("/index.html", HTTP_GET, handleIndex);
   server.on("/api/v1/get", HTTP_GET, handleApiGet);
-  server.on("/api/v1/reset_nonces", HTTP_POST, handleResetNonces);
   server.on("/api/v1/mute", HTTP_POST, handleMute);
   server.on("/healthz", HTTP_GET, handleHealthz);
   server.onNotFound([]() {
@@ -1739,19 +1597,19 @@ void loop() {
   handleAlarmRelay();
 
   const uint32_t now = millis();
-  if (displayPages.advance(now, confirmMode != CONFIRM_NONE)) {
+  if (displayPages.advance(now)) {
     requestScreenRedraw();
   }
   const uint8_t alarmKind = currentAlarmKind();
   const bool failAlarm = (alarmKind == ALARM_SPD_FAIL);
 
-  if (confirmMode == CONFIRM_NONE && failAlarm && (uint32_t)(now - lastFlashToggleMs) >= 500UL) {
+  if (failAlarm && (uint32_t)(now - lastFlashToggleMs) >= 500UL) {
     lastFlashToggleMs = now;
     screenFlashRed = !screenFlashRed;
     requestScreenRedraw();
   }
 
-  if ((!failAlarm || confirmMode != CONFIRM_NONE) && screenFlashRed) {
+  if (!failAlarm && screenFlashRed) {
     screenFlashRed = false;
     requestScreenRedraw();
   }

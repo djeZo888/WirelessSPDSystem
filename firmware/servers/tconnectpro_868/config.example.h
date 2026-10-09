@@ -51,10 +51,6 @@ constexpr uint32_t ALARM_LOW_BATTERY_ON_MS = 500UL;
 constexpr uint8_t RELAY_ACTIVE_LEVEL = LOW;
 constexpr uint8_t RELAY_INACTIVE_LEVEL = HIGH;
 
-// Protect POST /api/v1/reset_nonces with X-API-Key-Reset.
-// Empty disables protection. This HTTP server provides no TLS or web login.
-static const char *RESET_API_KEY = "CHANGE_ME_RESET_API_KEY";
-
 // Optional local input: 3V3 -> isolated SPD dry contact -> IO15.
 // Closed/HIGH = OK; open/LOW = FAIL. Never connect a live/mains signal.
 // Keep ID=-1 to disable. The local input occupies the first row on page 1.
