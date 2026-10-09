@@ -73,9 +73,11 @@ cp firmware/servers/tconnectpro_868/config.example.h firmware/servers/tconnectpr
 ```
 
 Edit `config.h`: set `CONFIGURED=true`, the AP password, optional Wi-Fi credentials,
-and up to eight `SPD_CONFIGS` entries with matching beacon IDs/keys and readable
-names. Match radio settings. Set a reset API key (the web RESET button asks for
-it); an empty key explicitly disables reset protection. Leave `SPD_LOCAL_ID=-1`
+and `SPD_CONFIGS` entries with matching beacon IDs/keys and readable names.
+Up to 127 wireless beacons plus one local contact can be configured. The LCD
+advances through eight-row pages every five seconds; eight or fewer stay on one
+page. Match radio settings. Set a reset API key (the web RESET button asks for it);
+an empty key explicitly disables reset protection. Leave `SPD_LOCAL_ID=-1`
 unless using the optional isolated local dry contact.
 
 Connect the ESP32 USB port with a data cable, find its port with
@@ -96,6 +98,10 @@ fallback AP and open its displayed IP. Check the display and dashboard identify
 each beacon correctly, then test OK/FAIL, temperature, battery voltage and alarms.
 After a beacon restart, use RESET on the receiver to clear its old nonce state.
 This also clears all live readings/loss history.
+
+See the [server guide](../firmware/servers/tconnectpro_868/README.md) for the full
+configuration reference, LCD paging, alarms, web API, RAM storage limits and
+Arduino IDE settings.
 
 ## Arduino IDE alternative
 

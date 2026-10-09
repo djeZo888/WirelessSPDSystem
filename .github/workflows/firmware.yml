@@ -23,3 +23,6 @@ jobs:
       - name: Check packet compatibility
         if: matrix.target == 'acdc'
         run: python3 tests/check_packet_compatibility.py
+      - name: Check server display paging
+        if: matrix.target == 'server'
+        run: python3 tests/check_server_display.py

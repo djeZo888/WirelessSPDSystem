@@ -1,6 +1,6 @@
 # Radio protocol
 
-Both beacon hardware versions use the same 20-byte application frame. Each beacon has a unique ID (1-127) and a private 32-bit key; the receiver is configured with the same ID/key pair. The current receiver supports up to 8 total entries (wireless beacons plus the optional local wired SPD).
+Both beacon hardware versions use the same 20-byte application frame. Each beacon has a unique ID (1-127) and a private 32-bit key; the receiver is configured with the same ID/key pair. The receiver can configure up to 127 wireless beacons plus one optional local wired SPD. Its LCD shows eight rows per page, cycling every five seconds when multiple pages are needed; reception, alarms and the web dashboard cover all configured SPDs.
 
 ![Communication from SPD inputs through an authenticated LoRa beacon to the display and local web interface](images/communication.svg)
 
