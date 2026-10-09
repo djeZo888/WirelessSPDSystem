@@ -27,6 +27,6 @@ Pinned dependency code emits some compiler warnings; the builds still pass.
 The original system was reported working by its author with both beacon variants.
 This repository cleanup has not flashed or tested physical boards. Battery standby
 current, fuse/clock/voltage operation, RF performance, actual contact/alarm behavior
-and actual board wiring remain hardware acceptance checks. The supplied MCU
-update replaces that section of the battery schematic; the hardware guide links
-the combined reference and both original inputs.
+and actual board wiring remain hardware acceptance checks. The hardware guide
+uses the recovered full battery schematic and production Gerbers; the earlier
+partial drawings and combined PDF have been removed.

@@ -1,0 +1,90 @@
+{
+  "hardware": 2,
+  "result": "matches recovered battery beacon layout, full schematic and firmware pin mapping",
+  "checked_date": "2026-10-09",
+  "source_archive_sha256": "b893adef3c61cb627512df5afab6effc7353951343b7b0ada0ba4d8e4c456021",
+  "source_nested_archive_sha256": "65b1056ab35e26188481d709f6e8124a5036aecf1193e0d557cbba538ffa4071",
+  "fabrication_archive": "hw2-battery-gerbers.zip",
+  "fabrication_archive_sha256": "77cc167a76e1f6d0e481075b575502a677079250ba8df222547a2ea4511bf247",
+  "board_dimensions_mm": [
+    44.3124,
+    77.54
+  ],
+  "routing_slots": 0,
+  "plated_drill_hits": 101,
+  "via_hits_included_in_plated_file": 85,
+  "nonplated_mounting_holes": {
+    "count": 2,
+    "diameter_mm": 3.45
+  },
+  "matches": [
+    "PCB render outline and component placement",
+    "AVR128DB32 U18, Wio-SX1262 U14, LM66100 U20, LiFePO4 holder, BAT-EN jumper, Force TX button and SPD/TMP connector",
+    "MCU, radio, contact, NTC, LED, button, RESET, UPDI and supply pin assignments",
+    "112 original component-pin positions agree with Gerber copper-pad locations within 0.005 mm"
+  ],
+  "reference_sha256": {
+    "pcb-render.png": "6581e7b4535df664eb5827e791a117bc7a4ce94e29d034f1b8a7fa31ac3c9260",
+    "schematic.svg": "ab58279cefbdbf157048ff0055f12293ba473f10584709d641b304d5edbd3765"
+  },
+  "source_revision_note": "Source archive filename contains v3; bottom silkscreen and recovered full schematic say V1.0. These files correspond to hardware 2.",
+  "packaging_notes": [
+    "Selected fabrication files are byte-for-byte unchanged.",
+    "Via-only drill subset omitted: all 85 via positions already occur in the plated drill file.",
+    "Fabricator customer/order metadata, processed CAM data, previews and reference drawings omitted.",
+    "Custom layer containing the battery footprint reference rectangle omitted; GKO supplies the physical board outline."
+  ],
+  "scope": "Hardware identity and file consistency check; no full copper connectivity/DRC or electrical qualification.",
+  "files": [
+    {
+      "file": "Gerber_TopLayer.GTL",
+      "bytes": 95977,
+      "sha256": "7bb388566534ca1c21f8fa105d1373bc136dd1cf67b84b7194f15eeb6e83c371"
+    },
+    {
+      "file": "Gerber_BottomLayer.GBL",
+      "bytes": 26468,
+      "sha256": "26113cec658295acdeb45c4c52bc7521f6eeb0658a49aeeec90a5d27f992eca1"
+    },
+    {
+      "file": "Gerber_TopSolderMaskLayer.GTS",
+      "bytes": 4753,
+      "sha256": "3558c7b51cd3bfe03ced9216ae402ec6b16736680d38f035c83f0aad4ec06299"
+    },
+    {
+      "file": "Gerber_BottomSolderMaskLayer.GBS",
+      "bytes": 1479,
+      "sha256": "2bc9931d1a5d432cccc1f12d508ad195ab34a9852bf80ac1d92877697f243fdb"
+    },
+    {
+      "file": "Gerber_TopSilkscreenLayer.GTO",
+      "bytes": 53659,
+      "sha256": "5c26f2cc947af1971e04772c2bf2d3969a0d19dd7d4cf6efbbc1b9cef53d6e64"
+    },
+    {
+      "file": "Gerber_BottomSilkscreenLayer.GBO",
+      "bytes": 7387,
+      "sha256": "129d6c60c1d88ceec016191a7a36f4a373d7d96afad78275a45d41ab1056fe37"
+    },
+    {
+      "file": "Gerber_BoardOutlineLayer.GKO",
+      "bytes": 746,
+      "sha256": "c3c98cbfe0efb20fca6395b91121aedca51ae8215edfaac21f1ffe703800495f"
+    },
+    {
+      "file": "Gerber_TopPasteMaskLayer.GTP",
+      "bytes": 9419,
+      "sha256": "d94fe6904836fd6d991c2235bcb7545ed0b7683bc6cfb93025349d78691d694d"
+    },
+    {
+      "file": "Drill_PTH_Through.DRL",
+      "bytes": 1865,
+      "sha256": "d7d7e4fb4e6911fc54acc24d12d0d3477b33badee3676199c2da15e62a49b2b3"
+    },
+    {
+      "file": "Drill_NPTH_Through.DRL",
+      "bytes": 235,
+      "sha256": "8c8f6930ca5e76e168883c36a1671517c215797cadf866ace23f5167f4ac82bc"
+    }
+  ]
+}
