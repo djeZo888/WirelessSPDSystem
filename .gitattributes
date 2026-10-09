@@ -1,5 +1,5 @@
 *.pdf binary
 *.png binary
 *.zip binary
-# Preserve the supplied EDA export byte-for-byte, including its formatting.
-hardware/ac-dc/schematic.svg -whitespace
+# Preserve supplied EDA exports byte-for-byte, including their formatting.
+hardware/*/schematic.svg -whitespace

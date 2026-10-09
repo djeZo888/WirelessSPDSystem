@@ -6,10 +6,26 @@ This transmitter monitors an SPD dry contact and a 10 kΩ NTC, then sends status
 
 Supplied PCB render of this hardware version.
 
-- [Firmware and configuration template](../../firmware/beacons/acdc_avr128da32/)
 - [Flashing instructions](../../docs/flashing.md)
-- [Original schematic, SVG](schematic.svg) · [schematic PNG preview](schematic-preview.png)
 - [Pin mapping and programming connections](../README.md)
+
+## Compatible firmware
+
+| Firmware version | Project | Features |
+| --- | --- | --- |
+| 1 | [acdc_avr128da32](../../firmware/beacons/acdc_avr128da32/README.md) | SPD status and temperature reports |
+
+Versions above are the firmware IDs transmitted in beacon packets. Each compatible firmware version has its own row.
+
+## Full schematic
+
+[![Full schematic of hardware 1 AC-DC beacon](schematic-preview.png)](schematic.svg)
+
+[Download full schematic, SVG](schematic.svg) · [Open PNG preview](schematic-preview.png)
+
+## Input fuse
+
+If the expected input voltage exceeds **250 VDC**, fit a **5 × 20 mm fuse with an explicit DC voltage rating at least as high as the maximum input voltage**. Many common 5 × 20 mm fuses are rated 250 V; an AC rating alone does not establish suitability for DC. For example, **Littelfuse 0477.500MXP** is a 500 mA time-lag cartridge fuse rated **400 VDC / 500 VAC** ([manufacturer datasheet](https://www.littelfuse.com/assetdocs/fuse-477-datasheet?assetguid=624ac410-146d-47dc-9971-cdaaa78f2c78)). Select current rating, time characteristic and breaking capacity for the circuit; the fuse rating does not increase the converter's input-voltage limit.
 
 ## PCB fabrication files
 
