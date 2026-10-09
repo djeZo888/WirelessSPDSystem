@@ -23,12 +23,7 @@ public:
     pageStartedMs_ = now;
   }
 
-  bool advance(uint32_t now, bool paused) {
-    if (paused) {
-      // Give the current page a fresh interval after the dialog closes.
-      pageStartedMs_ = now;
-      return false;
-    }
+  bool advance(uint32_t now) {
     if (pageCount() <= 1 || (uint32_t)(now - pageStartedMs_) < intervalMs_) {
       return false;
     }

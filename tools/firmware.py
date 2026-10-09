@@ -80,7 +80,6 @@ def validation_config(sketch, server):
         content = content.replace("CONFIGURED = false", "CONFIGURED = true")
         content = content.replace("0x00000000UL", "0x7C9E4A21UL")
         content = content.replace('"CHANGE_ME_AP_PASSWORD"', '"validation-only-ap"')
-        content = content.replace('"CHANGE_ME_RESET_API_KEY"', '"validation-only-reset"')
         # Exercise the largest addressable list, including a local row and
         # multiple LCD pages. These synthetic credentials are never flashed.
         entries = ",\n".join(

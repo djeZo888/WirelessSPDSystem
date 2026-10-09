@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the actual LCD renderer, alarm scan, reset, and loop with host I/O shims."""
+"""Run the actual LCD renderer, alarm scan, touch handler, and loop with host I/O shims."""
 from pathlib import Path
 import re
 import shutil
@@ -11,7 +11,7 @@ SERVER = ROOT / "firmware/servers/tconnectpro_868"
 
 
 def function(source, name):
-    match = re.search(r"(?:static\s+)?(?:void|uint8_t)\s+" + name +
+    match = re.search(r"(?:static\s+)?(?:void|uint8_t|bool)\s+" + name +
                       r"\([^;{]*\)\s*\{", source)
     if not match:
         raise RuntimeError(f"Cannot find firmware function: {name}")
@@ -43,10 +43,9 @@ constexpr float LORA_FREQ_MHZ = 865.3f;
 constexpr uint8_t LORA_SF = 10;
 constexpr uint16_t BLACK = 0, WHITE = 1, RED = 2, DARKGREEN = 3;
 constexpr uint8_t ALARM_NONE = 0, ALARM_LOW_BATTERY = 1, ALARM_SPD_FAIL = 2;
-constexpr uint8_t CONFIRM_NONE = 0, CONFIRM_RESET = 1;
 constexpr uint8_t RELAY_1 = 8, RELAY_INACTIVE_LEVEL = 1;
-constexpr int16_t RESET_BTN_X = 300, RESET_BTN_Y = 194, RESET_BTN_W = 78, RESET_BTN_H = 24;
 constexpr int16_t MUTE_BTN_X = 388, MUTE_BTN_Y = 194, MUTE_BTN_W = 92, MUTE_BTN_H = 24;
+constexpr uint32_t TOUCH_DEBOUNCE_MS = 350UL, TOUCH_RELEASE_STABLE_MS = 160UL;
 constexpr uint32_t DISPLAY_PERIODIC_REFRESH_MS = 60000UL;
 constexpr uint16_t DISPLAY_PAGE_SECONDS = PAGE_SECONDS;
 constexpr uint32_t PAGE_MS = uint32_t(DISPLAY_PAGE_SECONDS) * 1000UL;
@@ -59,9 +58,11 @@ SpdConfig SPD_CONFIGS[SPD_COUNT ? SPD_COUNT : 1];
 SpdState spdStates[SPD_COUNT ? SPD_COUNT : 1];
 bool localFail = false;
 bool screenFlashRed = false, screenDirty = true, alarmMuted = false;
-uint8_t confirmMode = CONFIRM_NONE;
 uint8_t bootLineIndex = 0;
-uint32_t nowMs = 0, lastScreenDrawMs = 0, lastFlashToggleMs = 0, nonceResets = 0;
+uint32_t nowMs = 0, lastScreenDrawMs = 0, lastFlashToggleMs = 0;
+bool touchWasDown = false, touchSampleAvailable = false, touchSampleDown = false;
+uint32_t lastTouchActionMs = 0, lastTouchDownSampleMs = 0;
+int16_t touchSampleX = 0, touchSampleY = 0;
 SpdDisplayPages displayPages(SPD_TOTAL_COUNT, PAGE_MS);
 uint32_t millis() { return nowMs; }
 bool isLocalFreshFail() { return SPD_LOCAL_ENABLED && localFail; }
@@ -98,18 +99,23 @@ struct Graphics {
   }
 } graphics;
 Graphics *gfx = &graphics;
-size_t buttonCount = 0, dialogCount = 0, flushCount = 0;
-void drawButton(int16_t, int16_t, int16_t, int16_t, const char *) { buttonCount++; }
-void drawConfirmDialog() { dialogCount++; }
+size_t buttonCount = 0, flushCount = 0;
+void drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const char *label) {
+  assert(x == MUTE_BTN_X && y == MUTE_BTN_Y && w == MUTE_BTN_W && h == MUTE_BTN_H);
+  assert(strcmp(label, alarmMuted ? "UNMUTE" : "MUTE") == 0);
+  buttonCount++;
+}
 void flushDisplay() { flushCount++; }
 void requestScreenRedraw() { screenDirty = true; }
-void resetLocalSpdLiveState() {}
 void digitalWrite(int, int) {}
 struct SerialShim { void printf(const char *, ...) {} } Serial;
 struct ServerShim { void handleClient() {} } server;
 void handleLoRa() {}
 void handleLocalSpd() {}
-void handleTouch() {}
+bool pollTouchLandscape(bool &down, int16_t &x, int16_t &y) {
+  down = touchSampleDown; x = touchSampleX; y = touchSampleY;
+  return touchSampleAvailable;
+}
 void handleAlarmRelay() {}
 '''
 
@@ -150,18 +156,18 @@ void checkRenderer() {
   const size_t expectedPages = (SPD_TOTAL_COUNT + 7) / 8;
   assert(displayPages.pageCount() == expectedPages);
   for (size_t page = 0; page < expectedPages; page++) {
-    buttonCount = dialogCount = flushCount = 0;
+    buttonCount = flushCount = 0;
     drawStatusTable();
     const auto ids = renderedIds();
     assert(ids.size() == (page + 1 < expectedPages ? 8 : SPD_TOTAL_COUNT - 8 * page));
-    assert(buttonCount == 2 && dialogCount == 0 && flushCount == 1);
+    assert(buttonCount == 1 && flushCount == 1);
     assert(textContains("LOCAL") == (SPD_LOCAL_ENABLED && page == 0));
     assert(textContains("Page ") == (expectedPages > 1));
     checkVersionLabel(2, 211);
     allIds.insert(allIds.end(), ids.begin(), ids.end());
     if (expectedPages > 1) {
       nowMs = 100 + static_cast<uint32_t>(PAGE_MS * (page + 1));
-      assert(displayPages.advance(nowMs, false));
+      assert(displayPages.advance(nowMs));
     }
   }
   assert(displayPages.pageIndex() == 0);
@@ -175,26 +181,24 @@ void checkTiming() {
   for (uint32_t interval : {2000UL, 5000UL, 10000UL}) {
     SpdDisplayPages pages(17, interval);
     pages.restart(100);
-    assert(!pages.advance(100 + interval - 1, false) && pages.pageIndex() == 0);
-    assert(pages.advance(100 + interval, false) && pages.pageIndex() == 1);
-    assert(!pages.advance(100 + 2 * interval, true) && pages.pageIndex() == 1);
-    assert(!pages.advance(100 + 3 * interval, true) && pages.pageIndex() == 1);
-    assert(!pages.advance(100 + 4 * interval - 1, false));
-    assert(pages.advance(100 + 4 * interval, false) && pages.pageIndex() == 2);
+    assert(!pages.advance(100 + interval - 1) && pages.pageIndex() == 0);
+    assert(pages.advance(100 + interval) && pages.pageIndex() == 1);
+    assert(!pages.advance(100 + 2 * interval - 1) && pages.pageIndex() == 1);
+    assert(pages.advance(100 + 2 * interval) && pages.pageIndex() == 2);
     assert(pages.rowCount() == 1);
-    assert(pages.advance(100 + 5 * interval, false) && pages.pageIndex() == 0);
+    assert(pages.advance(100 + 3 * interval) && pages.pageIndex() == 0);
     const uint32_t started = UINT32_MAX - interval / 2;
     const uint32_t expires = started + interval;
     pages.restart(started);
-    assert(!pages.advance(expires - 1, false));
-    assert(pages.advance(expires, false) && pages.pageIndex() == 1);
+    assert(!pages.advance(expires - 1));
+    assert(pages.advance(expires) && pages.pageIndex() == 1);
     pages.restart(12000);
-    assert(pages.pageIndex() == 0 && !pages.advance(12000 + interval - 1, false));
+    assert(pages.pageIndex() == 0 && !pages.advance(12000 + interval - 1));
     for (size_t total : {size_t(0), size_t(1), size_t(8)}) {
       SpdDisplayPages single(total, interval);
       single.restart(0);
       assert(single.rowCount() == total);
-      assert(!single.advance(interval, false) && !single.advance(UINT32_MAX, false));
+      assert(!single.advance(interval) && !single.advance(UINT32_MAX));
       assert(single.pageIndex() == 0);
     }
   }
@@ -205,12 +209,8 @@ void checkLoopAndAlarm() {
   nowMs = PAGE_MS; loop();
   assert(displayPages.pageIndex() == (SPD_TOTAL_COUNT > 8 ? 1 : 0));
   if (SPD_TOTAL_COUNT > 8) {
-    confirmMode = CONFIRM_RESET; requestScreenRedraw(); nowMs = 2 * PAGE_MS; loop();
-    assert(displayPages.pageIndex() == 1 && dialogCount > 0);
-    nowMs = 3 * PAGE_MS; loop(); assert(displayPages.pageIndex() == 1);
-    confirmMode = CONFIRM_NONE; requestScreenRedraw(); nowMs = 4 * PAGE_MS - 1; loop();
-    assert(displayPages.pageIndex() == 1);
-    nowMs = 4 * PAGE_MS; loop();
+    nowMs = 2 * PAGE_MS - 1; loop(); assert(displayPages.pageIndex() == 1);
+    nowMs = 2 * PAGE_MS; loop();
     assert(displayPages.pageIndex() == (2 % displayPages.pageCount()));
   }
   if (SPD_TOTAL_COUNT > 8 && SPD_COUNT > 0) {
@@ -231,19 +231,42 @@ void checkLoopAndAlarm() {
   if (SPD_LOCAL_ENABLED) {
     localFail = true; assert(currentAlarmKind() == ALARM_SPD_FAIL); localFail = false;
   }
-  nowMs = 5 * PAGE_MS; confirmMode = CONFIRM_RESET;
-  resetAllSpdLiveState();
-  assert(displayPages.pageIndex() == 0 && confirmMode == CONFIRM_NONE && nonceResets == 1);
-  assert(!displayPages.advance(6 * PAGE_MS - 1, false));
-  assert(displayPages.advance(6 * PAGE_MS, false) == (SPD_TOTAL_COUNT > 8));
-  for (size_t i = 0; i < SPD_COUNT; i++) assert(!spdStates[i].seen);
+}
+void touchSample(uint32_t now, bool down, int16_t x, int16_t y) {
+  nowMs = now; touchSampleAvailable = true; touchSampleDown = down;
+  touchSampleX = x; touchSampleY = y; handleTouch();
+}
+void checkMuteTouch() {
+  alarmMuted = false; screenDirty = false;
+  touchSample(1000, true, MUTE_BTN_X + 1, MUTE_BTN_Y + 1);
+  assert(alarmMuted && screenDirty);
+  screenDirty = false;
+  touchSample(1100, true, MUTE_BTN_X + 1, MUTE_BTN_Y + 1);
+  assert(alarmMuted && !screenDirty); // Holding a finger toggles only once.
+  touchSample(1200, false, 0, 0);
+  assert(touchWasDown); // A brief empty sample cannot rearm the button.
+  touchSample(1210, true, MUTE_BTN_X + 1, MUTE_BTN_Y + 1);
+  assert(alarmMuted && !screenDirty);
+  touchSample(1370, false, 0, 0);
+  assert(!touchWasDown);
+  touchSample(1371, true, MUTE_BTN_X + 1, MUTE_BTN_Y + 1);
+  assert(!alarmMuted && screenDirty);
+  screenDirty = false;
+  touchSample(1531, false, 0, 0);
+  touchSample(1532, true, MUTE_BTN_X + 1, MUTE_BTN_Y + 1);
+  assert(!alarmMuted && !screenDirty); // Debounce also applies to fresh presses.
+  touchSample(1800, false, 0, 0);
+  touchSample(1801, true, 320, 205);
+  assert(!alarmMuted && !screenDirty); // The former left button area is inert.
+  drawStatusTable(); assert(buttonCount > 0);
+  checkVersionLabel(2, 211);
 }
 int main() {
   for (size_t i = 0; i < SPD_COUNT; i++) {
     SPD_CONFIGS[i] = {static_cast<uint8_t>(i + 1), "Wireless", 1};
     spdStates[i].seen = spdStates[i].fresh = true;
   }
-  checkRenderer(); checkTiming(); checkLoopAndAlarm();
+  checkRenderer(); checkTiming(); checkLoopAndAlarm(); checkMuteTouch();
 }
 '''
 
@@ -256,7 +279,7 @@ def main():
     # Reuse production capacity assertions instead of duplicating their limits.
     assertions = re.findall(r"static_assert\((?:SPD_|DISPLAY_PAGE_SECONDS)[^;]+;", source)
     body = SHIMS + "\n" + "\n".join(assertions) + "\n"
-    for name in ["currentAlarmKind", "resetAllSpdLiveState", "drawBootHeader", "drawStatusTable", "loop"]:
+    for name in ["currentAlarmKind", "pointInRect", "handleTouch", "drawBootHeader", "drawStatusTable", "loop"]:
         body += function(source, name) + "\n"
     body += CHECKS
     variants = [(rows, local, 5) for rows in (1, 8, 9, 16, 17, 127) for local in (0, 1)]
@@ -281,8 +304,8 @@ def main():
                                     capture_output=True, text=True)
             if result.returncode == 0 or "static assertion" not in result.stderr:
                 raise SystemExit(f"Expected production assertion for {rows} rows, local={local}, interval={seconds}s")
-    print(f"PASS: {len(variants)} LCD configurations; actual renderer, loop, alarm scan, and reset.")
-    print("Verified complete rows, version footer, off-page alarms, configurable 2/5/10-second timing, rollover, and confirmation pause.")
+    print(f"PASS: {len(variants)} LCD configurations; actual renderer, loop, alarm scan, and mute touch handler.")
+    print("Verified complete rows, version footer, off-page alarms, configurable 2/5/10-second timing, rollover, and mute debounce.")
     print("Host graphics and telemetry shims do not qualify physical LCD, touch, relay, RF, or maximum-device performance.")
 
 

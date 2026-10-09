@@ -86,9 +86,8 @@ beacon IDs/keys and readable names.
 Up to 127 wireless beacons plus one local contact can be configured. The LCD
 advances through eight-row pages at `DISPLAY_PAGE_SECONDS` (**5** by default,
 **1–3600** allowed); eight or fewer stay on one page. The dashboard and a single
-`GET /api/v1/get` request always include the full list. Match radio settings. Set
-a reset API key (the web RESET button asks for it);
-an empty key explicitly disables reset protection. Leave `SPD_LOCAL_ID=-1`
+`GET /api/v1/get` request always include the full list. Match radio settings.
+Leave `SPD_LOCAL_ID=-1`
 unless using the optional isolated local dry contact.
 
 When upgrading, copy any new display and touch settings from the updated
@@ -112,9 +111,10 @@ USB CDC enabled, 921600 upload; the script supplies the exact board options.
 Open the IP shown on screen/Serial. Without a Wi-Fi connection, join the configured
 fallback AP and open its displayed IP. Check the display and dashboard identify
 each beacon correctly, then test OK/FAIL, temperature, battery voltage and alarms.
-Power-cycle a persistent beacon and check that its next nonce is higher without
-using receiver RESET. RESET remains available for explicit migration/recovery
-and clears all wireless live readings/loss history.
+Power-cycle a persistent beacon and check that its next nonce is higher while
+the receiver remains running. If migration or recovery requires clearing the
+receiver's RAM history, restart the receiver; this also clears its live readings
+and packet-loss history.
 
 See the [server guide](../firmware/servers/tconnectpro_868/README.md) for the full
 configuration reference, LCD paging, alarms, web API, RAM storage limits and

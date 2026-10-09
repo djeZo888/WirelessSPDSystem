@@ -16,8 +16,7 @@ are configured. Eight or fewer stay on one page. Up to **127
 wireless beacons plus one local contact** can be configured. The optional local
 contact is first, followed by beacons in `SPD_CONFIGS` order. Reception, alarms and the web
 dashboard cover all configured SPDs, including those on another LCD page.
-Paging pauses while the touch RESET confirmation is open; RESET returns to the
-first page. The first page interval starts after boot completes.
+The first page interval starts after boot completes.
 
 ## Build and flash
 
@@ -40,7 +39,6 @@ the `.ino` does not need editing:
 | `LORA_*` | Match every beacon's frequency, SF, bandwidth, coding rate, sync word, preamble and CRC. Defaults: **865.3 MHz, SF10, 125 kHz, CR 4/5, sync 0x12**. |
 | `WIFI_SSID`, `WIFI_PASSWORD` | Optional station credentials. Empty SSID uses the fallback access point. |
 | `FALLBACK_AP_SSID`, `FALLBACK_AP_PASSWORD` | Choose an AP name and a password of **8–63 characters**, even when using station Wi-Fi. |
-| `RESET_API_KEY` | Choose a private key for web RESET. An empty string explicitly disables reset protection. |
 | `SPD_LOCAL_ID` | Leave **-1** to disable the local input, or choose an unused ID **0–127**. ID 0 is available only for the local contact, allowing 128 total rows. |
 | `DISPLAY_PAGE_SECONDS` | Seconds on each LCD page: **1–3600**, default **5**. The page size stays at eight rows. |
 | `DISPLAY_PERIODIC_REFRESH_MS`, `TOUCH_*_MS` | Optional LCD refresh and touch timing adjustments; keep the example defaults unless needed. |
@@ -118,17 +116,15 @@ there are no API pages to fetch. This firmware uses Wi-Fi; Ethernet is unused.
 
 | HTTP endpoint | Purpose |
 | --- | --- |
-| `GET /` | Dashboard, RESET and MUTE/UNMUTE controls. |
+| `GET /` | Dashboard and MUTE/UNMUTE controls. |
 | `GET /api/v1/get` | JSON: `gateway` diagnostics, `summary` counts and every entry in `spds`. Includes status, telemetry, age, nonce, raw packet and packet-loss statistics. |
-| `POST /api/v1/reset_nonces` | Clear wireless live state, nonce checks and loss history. Requires `X-API-Key-Reset` when a reset key is configured. |
 | `POST /api/v1/mute?value=1` | Mute the relay; use `value=0` to unmute. Omitting `value` toggles mute. |
 | `GET /healthz` | Returns `{"status":"ok"}` while the web handler is running. |
 
-The web RESET button prompts for the configured reset key if needed. The HTTP
-server has no TLS or login; dashboard reads and mute are unauthenticated. Use it
-on a trusted network.
+The HTTP server has no TLS or login; dashboard reads and mute are unauthenticated.
+Use it on a trusted network.
 
-## State, reset and alarms
+## State and alarms
 
 Wireless rows are **UNKNOWN** until their first accepted packet, then **OK** or
 **FAIL**. They become **STALE** after more than `STALE_AFTER_SECONDS` without a
@@ -140,13 +136,11 @@ your installation's beacon count and reporting intervals.
 
 The receiver keeps the latest reading, nonce and loss window for each beacon
 **in RAM only**. It does not store a persistent database or a full packet log.
-Reboot clears this state. LCD/web **RESET** also clears it, preserving configured
-names and keys; the local contact is resampled immediately. Both beacon hardware
-versions at firmware 1 retain their nonce in EEPROM, so normal beacon power
-cycles do not require RESET. Migrating RAM-only firmware or replacing/erasing
-beacon EEPROM requires a safe start above the last received nonce, or an explicit
-one-time RESET; see [persistent nonce notes](../../../docs/nonce-storage.md).
-LCD RESET requires touch confirmation.
+Receiver reboot clears this state. Both beacon hardware versions at firmware 1
+retain their nonce in EEPROM across normal power cycles. Migrating RAM-only
+firmware or replacing/erasing beacon EEPROM requires a safe start above the last
+received nonce, or a receiver restart to clear its RAM history; see
+[persistent nonce notes](../../../docs/nonce-storage.md).
 
 With the default settings:
 
@@ -181,5 +175,5 @@ changes OK/FAIL. Check temperature, battery readings and relay/mute behavior.
 For more than eight rows, verify every page appears and an off-page FAIL still
 raises the alarm. A rejected packet in Serial usually identifies mismatched
 radio settings, an unregistered ID, a wrong key or an old nonce; compare both
-device configurations. Normal restarts with persistent beacon firmware need no
-RESET; follow the migration notes when replacing or erasing beacon EEPROM.
+device configurations. Follow the migration notes when replacing or erasing
+beacon EEPROM.
