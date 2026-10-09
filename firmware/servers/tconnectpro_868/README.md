@@ -6,13 +6,18 @@ PSRAM, 868 MHz SX1262, ST7796 LCD and CST226SE touch. It accepts both
 [battery](../../beacons/battery_avr128db32) beacon firmware using the
 [20-byte authenticated protocol](../../../docs/protocol.md).
 
-The LCD shows **eight SPDs per page** and advances every **five seconds** when
-more than eight are configured. Eight or fewer stay on one page. Up to **127
+Receiver firmware starts at **v0.1**, shown on the LCD as **v0.1-tconnpro**.
+See the [receiver changelog](CHANGELOG.md). This version is separate from beacon
+HW/FW fields in LoRa packets and the repository's `v0.1.0` release.
+
+The LCD shows **eight SPDs per page** and advances at the configured
+`DISPLAY_PAGE_SECONDS` interval (**5 seconds** by default) when more than eight
+are configured. Eight or fewer stay on one page. Up to **127
 wireless beacons plus one local contact** can be configured. The optional local
 contact is first, followed by beacons in `SPD_CONFIGS` order. Reception, alarms and the web
 dashboard cover all configured SPDs, including those on another LCD page.
 Paging pauses while the touch RESET confirmation is open; RESET returns to the
-first page. The first five-second interval starts after boot completes.
+first page. The first page interval starts after boot completes.
 
 ## Build and flash
 
@@ -26,7 +31,8 @@ python3 tools/firmware.py setup server
 cp firmware/servers/tconnectpro_868/config.example.h firmware/servers/tconnectpro_868/config.h
 ```
 
-Edit `config.h` before building:
+Edit **only `config.h`** before building; deployment settings belong there and
+the `.ino` does not need editing:
 
 | Setting | Required configuration |
 | --- | --- |
@@ -36,12 +42,19 @@ Edit `config.h` before building:
 | `FALLBACK_AP_SSID`, `FALLBACK_AP_PASSWORD` | Choose an AP name and a password of **8–63 characters**, even when using station Wi-Fi. |
 | `RESET_API_KEY` | Choose a private key for web RESET. An empty string explicitly disables reset protection. |
 | `SPD_LOCAL_ID` | Leave **-1** to disable the local input, or choose an unused ID **0–127**. ID 0 is available only for the local contact, allowing 128 total rows. |
+| `DISPLAY_PAGE_SECONDS` | Seconds on each LCD page: **1–3600**, default **5**. The page size stays at eight rows. |
+| `DISPLAY_PERIODIC_REFRESH_MS`, `TOUCH_*_MS` | Optional LCD refresh and touch timing adjustments; keep the example defaults unless needed. |
 | `CONFIGURED` | Set to **true** after completing the configuration. |
 
 Use the same independent random key already assigned to each beacon. Friendly
 names identify the installation; the LCD displays their first 18 characters.
 `config.h`, build images and private build manifests contain deployment secrets
 and are ignored by Git. Keep them private.
+
+When upgrading an existing configuration, copy the new display and touch
+settings from `config.example.h` into your private `config.h`, preserving your
+credentials and beacon list. These settings are applied when compiling; rebuild
+and flash after changing the page interval.
 
 Connect the board's ESP32 USB port using a **data cable**. Find its port, build
 your configured image, then upload:
@@ -64,8 +77,10 @@ Touch uses `Wire` directly; no separate touch library is needed.
 `python3 tools/firmware.py validate server` compiles an isolated synthetic
 configuration with 127 wireless beacons plus the local contact for development
 checks; its images are never selected by `flash`. Run
-`python3 tests/check_server_display.py` to check paging and off-page alarms on
-the host without a connected board.
+`python3 tests/check_server_display.py` to check paging and off-page alarms, and
+`python3 tests/check_server_api.py` to check the complete API/web list on the
+host without a connected board. These development tests require a C++ compiler;
+the API/web test also requires Node.js.
 
 ### Arduino IDE
 
@@ -97,7 +112,9 @@ At boot the receiver connects to station Wi-Fi, waiting up to 15 seconds by
 default. If credentials are absent or connection fails, it starts the configured
 fallback AP. Join that AP or the same station network, then open **`http://IP/`**
 using the IP shown on the LCD/Serial. The dashboard refreshes every five seconds
-and shows all SPDs in one table. This firmware uses Wi-Fi; Ethernet is unused.
+and shows all SPDs in one table. One **`GET /api/v1/get`** request returns every
+configured SPD, independent of the current LCD page or its switching interval;
+there are no API pages to fetch. This firmware uses Wi-Fi; Ethernet is unused.
 
 | HTTP endpoint | Purpose |
 | --- | --- |
@@ -164,4 +181,5 @@ changes OK/FAIL. Check temperature, battery readings and relay/mute behavior.
 For more than eight rows, verify every page appears and an off-page FAIL still
 raises the alarm. A rejected packet in Serial usually identifies mismatched
 radio settings, an unregistered ID, a wrong key or an old nonce; compare both
-device configurations and use RESET when the beacon has restarted.
+device configurations. Normal restarts with persistent beacon firmware need no
+RESET; follow the migration notes when replacing or erasing beacon EEPROM.

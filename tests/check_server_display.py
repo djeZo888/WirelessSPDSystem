@@ -24,6 +24,8 @@ def function(source, name):
 
 SHIMS = r'''
 #include "display_pages.h"
+#include "version.h"
+#include "config_types.h"
 #include <cassert>
 #include <cstdarg>
 #include <cstdio>
@@ -46,7 +48,8 @@ constexpr uint8_t RELAY_1 = 8, RELAY_INACTIVE_LEVEL = 1;
 constexpr int16_t RESET_BTN_X = 300, RESET_BTN_Y = 194, RESET_BTN_W = 78, RESET_BTN_H = 24;
 constexpr int16_t MUTE_BTN_X = 388, MUTE_BTN_Y = 194, MUTE_BTN_W = 92, MUTE_BTN_H = 24;
 constexpr uint32_t DISPLAY_PERIODIC_REFRESH_MS = 60000UL;
-struct SpdConfig { uint8_t id; const char *friendlyName; uint32_t secret; };
+constexpr uint16_t DISPLAY_PAGE_SECONDS = PAGE_SECONDS;
+constexpr uint32_t PAGE_MS = uint32_t(DISPLAY_PAGE_SECONDS) * 1000UL;
 struct SpdState {
   bool seen = false, fresh = false, batteryLow = false, batteryValid = false;
   uint8_t statusCode = 1;
@@ -57,8 +60,9 @@ SpdState spdStates[SPD_COUNT ? SPD_COUNT : 1];
 bool localFail = false;
 bool screenFlashRed = false, screenDirty = true, alarmMuted = false;
 uint8_t confirmMode = CONFIRM_NONE;
+uint8_t bootLineIndex = 0;
 uint32_t nowMs = 0, lastScreenDrawMs = 0, lastFlashToggleMs = 0, nonceResets = 0;
-SpdDisplayPages displayPages(SPD_TOTAL_COUNT);
+SpdDisplayPages displayPages(SPD_TOTAL_COUNT, PAGE_MS);
 uint32_t millis() { return nowMs; }
 bool isLocalFreshFail() { return SPD_LOCAL_ENABLED && localFail; }
 bool isLocalFreshOk() { return SPD_LOCAL_ENABLED && !localFail; }
@@ -127,7 +131,20 @@ bool textContains(const char *needle) {
     if (item.text.find(needle) != String::npos) return true;
   return false;
 }
+void checkVersionLabel(int16_t x, int16_t y) {
+  assert(strcmp(SERVER_FIRMWARE_ID, "v0.1-tconnpro") == 0);
+  size_t labels = 0;
+  for (const auto &item : graphics.printed) {
+    if (item.text == SERVER_FIRMWARE_ID) {
+      assert(item.x == x && item.y == y); labels++;
+    }
+  }
+  assert(labels == 1);
+}
 void checkRenderer() {
+  drawBootHeader();
+  // The boot label shares the header line, with space reserved on the right.
+  assert(textContains(SERVER_FIRMWARE_ID));
   displayPages.restart(100);
   std::vector<unsigned> allIds;
   const size_t expectedPages = (SPD_TOTAL_COUNT + 7) / 8;
@@ -140,9 +157,10 @@ void checkRenderer() {
     assert(buttonCount == 2 && dialogCount == 0 && flushCount == 1);
     assert(textContains("LOCAL") == (SPD_LOCAL_ENABLED && page == 0));
     assert(textContains("Page ") == (expectedPages > 1));
+    checkVersionLabel(2, 211);
     allIds.insert(allIds.end(), ids.begin(), ids.end());
     if (expectedPages > 1) {
-      nowMs = 100 + static_cast<uint32_t>(5000 * (page + 1));
+      nowMs = 100 + static_cast<uint32_t>(PAGE_MS * (page + 1));
       assert(displayPages.advance(nowMs, false));
     }
   }
@@ -154,41 +172,45 @@ void checkRenderer() {
     assert(allIds[index++] == wireless);
 }
 void checkTiming() {
-  SpdDisplayPages pages(17);
-  pages.restart(100);
-  assert(!pages.advance(5099, false) && pages.pageIndex() == 0);
-  assert(pages.advance(5100, false) && pages.pageIndex() == 1);
-  assert(!pages.advance(9000, true) && pages.pageIndex() == 1);
-  assert(!pages.advance(14000, true) && pages.pageIndex() == 1);
-  assert(!pages.advance(18999, false));
-  assert(pages.advance(19000, false) && pages.pageIndex() == 2);
-  assert(pages.rowCount() == 1);
-  assert(pages.advance(24000, false) && pages.pageIndex() == 0);
-  pages.restart(UINT32_MAX - 2000);
-  assert(!pages.advance(2998, false));
-  assert(pages.advance(2999, false) && pages.pageIndex() == 1);
-  pages.restart(12000);
-  assert(pages.pageIndex() == 0 && !pages.advance(16999, false));
-  for (size_t total : {size_t(0), size_t(1), size_t(8)}) {
-    SpdDisplayPages single(total);
-    single.restart(0);
-    assert(single.rowCount() == total);
-    assert(!single.advance(5000, false) && !single.advance(UINT32_MAX, false));
-    assert(single.pageIndex() == 0);
+  for (uint32_t interval : {2000UL, 5000UL, 10000UL}) {
+    SpdDisplayPages pages(17, interval);
+    pages.restart(100);
+    assert(!pages.advance(100 + interval - 1, false) && pages.pageIndex() == 0);
+    assert(pages.advance(100 + interval, false) && pages.pageIndex() == 1);
+    assert(!pages.advance(100 + 2 * interval, true) && pages.pageIndex() == 1);
+    assert(!pages.advance(100 + 3 * interval, true) && pages.pageIndex() == 1);
+    assert(!pages.advance(100 + 4 * interval - 1, false));
+    assert(pages.advance(100 + 4 * interval, false) && pages.pageIndex() == 2);
+    assert(pages.rowCount() == 1);
+    assert(pages.advance(100 + 5 * interval, false) && pages.pageIndex() == 0);
+    const uint32_t started = UINT32_MAX - interval / 2;
+    const uint32_t expires = started + interval;
+    pages.restart(started);
+    assert(!pages.advance(expires - 1, false));
+    assert(pages.advance(expires, false) && pages.pageIndex() == 1);
+    pages.restart(12000);
+    assert(pages.pageIndex() == 0 && !pages.advance(12000 + interval - 1, false));
+    for (size_t total : {size_t(0), size_t(1), size_t(8)}) {
+      SpdDisplayPages single(total, interval);
+      single.restart(0);
+      assert(single.rowCount() == total);
+      assert(!single.advance(interval, false) && !single.advance(UINT32_MAX, false));
+      assert(single.pageIndex() == 0);
+    }
   }
 }
 void checkLoopAndAlarm() {
-  displayPages.restart(0); nowMs = 4999; screenDirty = false;
+  displayPages.restart(0); nowMs = PAGE_MS - 1; screenDirty = false;
   loop(); assert(displayPages.pageIndex() == 0);
-  nowMs = 5000; loop();
+  nowMs = PAGE_MS; loop();
   assert(displayPages.pageIndex() == (SPD_TOTAL_COUNT > 8 ? 1 : 0));
   if (SPD_TOTAL_COUNT > 8) {
-    confirmMode = CONFIRM_RESET; requestScreenRedraw(); nowMs = 10000; loop();
+    confirmMode = CONFIRM_RESET; requestScreenRedraw(); nowMs = 2 * PAGE_MS; loop();
     assert(displayPages.pageIndex() == 1 && dialogCount > 0);
-    nowMs = 15000; loop(); assert(displayPages.pageIndex() == 1);
-    confirmMode = CONFIRM_NONE; requestScreenRedraw(); nowMs = 19999; loop();
+    nowMs = 3 * PAGE_MS; loop(); assert(displayPages.pageIndex() == 1);
+    confirmMode = CONFIRM_NONE; requestScreenRedraw(); nowMs = 4 * PAGE_MS - 1; loop();
     assert(displayPages.pageIndex() == 1);
-    nowMs = 20000; loop();
+    nowMs = 4 * PAGE_MS; loop();
     assert(displayPages.pageIndex() == (2 % displayPages.pageCount()));
   }
   if (SPD_TOTAL_COUNT > 8 && SPD_COUNT > 0) {
@@ -209,11 +231,11 @@ void checkLoopAndAlarm() {
   if (SPD_LOCAL_ENABLED) {
     localFail = true; assert(currentAlarmKind() == ALARM_SPD_FAIL); localFail = false;
   }
-  nowMs = 25000; confirmMode = CONFIRM_RESET;
+  nowMs = 5 * PAGE_MS; confirmMode = CONFIRM_RESET;
   resetAllSpdLiveState();
   assert(displayPages.pageIndex() == 0 && confirmMode == CONFIRM_NONE && nonceResets == 1);
-  assert(!displayPages.advance(29999, false));
-  assert(displayPages.advance(30000, false) == (SPD_TOTAL_COUNT > 8));
+  assert(!displayPages.advance(6 * PAGE_MS - 1, false));
+  assert(displayPages.advance(6 * PAGE_MS, false) == (SPD_TOTAL_COUNT > 8));
   for (size_t i = 0; i < SPD_COUNT; i++) assert(!spdStates[i].seen);
 }
 int main() {
@@ -232,32 +254,35 @@ def main():
         raise SystemExit("A host C++ compiler is required.")
     source = (SERVER / "tconnectpro_868.ino").read_text()
     # Reuse production capacity assertions instead of duplicating their limits.
-    assertions = re.findall(r"static_assert\(SPD_[^;]+;", source)
+    assertions = re.findall(r"static_assert\((?:SPD_|DISPLAY_PAGE_SECONDS)[^;]+;", source)
     body = SHIMS + "\n" + "\n".join(assertions) + "\n"
-    for name in ["currentAlarmKind", "resetAllSpdLiveState", "drawStatusTable", "loop"]:
+    for name in ["currentAlarmKind", "resetAllSpdLiveState", "drawBootHeader", "drawStatusTable", "loop"]:
         body += function(source, name) + "\n"
     body += CHECKS
-    variants = [(rows, local) for rows in (1, 8, 9, 16, 17, 127) for local in (0, 1)]
-    variants.append((128, 1))
+    variants = [(rows, local, 5) for rows in (1, 8, 9, 16, 17, 127) for local in (0, 1)]
+    variants.append((128, 1, 5))
+    variants += [(17, local, seconds) for local in (0, 1) for seconds in (2, 10)]
     with tempfile.TemporaryDirectory(prefix="wspd-display-") as temporary:
         work = Path(temporary)
         driver = work / "display.cpp"
         driver.write_text(body)
-        for rows, local in variants:
-            binary = work / f"display-{rows}-{local}"
+        for rows, local, seconds in variants:
+            binary = work / f"display-{rows}-{local}-{seconds}"
             subprocess.run([compiler, "-std=c++11", "-O1", "-g",
                             "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                             "-I", str(SERVER), f"-DTOTAL_ROWS={rows}", f"-DHAS_LOCAL={local}",
+                            f"-DPAGE_SECONDS={seconds}",
                             str(driver), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
-        for rows, local in [(0, 0), (128, 0), (129, 1)]:
+        for rows, local, seconds in [(0, 0, 5), (128, 0, 5), (129, 1, 5), (17, 0, 0), (17, 0, 3601)]:
             result = subprocess.run([compiler, "-std=c++11", "-fsyntax-only", "-I", str(SERVER),
-                                     f"-DTOTAL_ROWS={rows}", f"-DHAS_LOCAL={local}", str(driver)],
+                                     f"-DTOTAL_ROWS={rows}", f"-DHAS_LOCAL={local}",
+                                     f"-DPAGE_SECONDS={seconds}", str(driver)],
                                     capture_output=True, text=True)
             if result.returncode == 0 or "static assertion" not in result.stderr:
-                raise SystemExit(f"Expected production capacity assertion for {rows} rows, local={local}")
+                raise SystemExit(f"Expected production assertion for {rows} rows, local={local}, interval={seconds}s")
     print(f"PASS: {len(variants)} LCD configurations; actual renderer, loop, alarm scan, and reset.")
-    print("Verified complete row coverage, local mapping, off-page alarms, 5-second timing, rollover, and confirmation pause.")
+    print("Verified complete rows, version footer, off-page alarms, configurable 2/5/10-second timing, rollover, and confirmation pause.")
     print("Host graphics and telemetry shims do not qualify physical LCD, touch, relay, RF, or maximum-device performance.")
 
 

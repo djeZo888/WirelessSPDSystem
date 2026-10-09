@@ -1,4 +1,5 @@
 #pragma once
+#include "config_types.h"
 
 // Copy to config.h (gitignored). Configure, then set CONFIGURED to true.
 // These examples intentionally contain no working deployment credentials.
@@ -11,6 +12,16 @@ static const char *FALLBACK_AP_SSID = "WirelessSPDSystem";
 static const char *FALLBACK_AP_PASSWORD = "CHANGE_ME_AP_PASSWORD"; // choose 8–63 characters
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
 
+// LCD: eight rows per page. One page stays fixed; multiple pages cycle.
+// Set the time each page is visible before compiling (1..3600 seconds).
+constexpr uint16_t DISPLAY_PAGE_SECONDS = 5;
+constexpr uint32_t DISPLAY_PERIODIC_REFRESH_MS = 60000UL;
+
+// Touch polling and press/release debounce.
+constexpr uint32_t TOUCH_POLL_MS = 40UL;
+constexpr uint32_t TOUCH_DEBOUNCE_MS = 350UL;
+constexpr uint32_t TOUCH_RELEASE_STABLE_MS = 160UL;
+
 // All beacons and receivers must match. 868 MHz hardware, 865.3 MHz carrier.
 constexpr float LORA_FREQ_MHZ = 865.3f;
 constexpr uint8_t LORA_SF = 10;
@@ -22,7 +33,6 @@ constexpr int8_t LORA_RX_TX_DBM = 10;
 constexpr bool LORA_CRC_ENABLED = true;
 
 // Register up to 127 beacons; ID and secret must match each beacon's config.h.
-// LCD: 8 rows per page, switching every 5 seconds when more than 8 rows exist.
 // Use unique IDs in 1..127 (0 is reserved) and independent, randomly generated nonzero uint32 keys.
 // The legacy 32-bit key and truncated SHA256 tag have limited security; see docs/protocol.md.
 static const SpdConfig SPD_CONFIGS[] = {
