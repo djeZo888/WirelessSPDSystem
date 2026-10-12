@@ -16,7 +16,7 @@ are unchanged.
   one-second CPU interrupt during the long wait.
 - A one-shot RTC compare schedules randomized **300–600 second** production
   reports, **20–40 seconds** in preproduction, the existing 5-second first report,
-  3-second FAIL repeats, LED turn-off and bounded radio recovery. Quantization
+  3-second FAIL repeats, independent green heartbeat on/off and bounded radio recovery. Quantization
   is 31.25 ms; accuracy depends on the internal RTC oscillator.
 - STANDBY is selected because RTC CNT runs in that mode. POWER_DOWN would
   require a different timer design using PIT. A deeper mode name alone does
@@ -51,11 +51,18 @@ contact edge from being serviced between the final check and sleeping.
 | Value | Behavior |
 | --- | --- |
 | **0** | Earlier steady green power / red FAIL indications; yellow throughout TX. These LEDs continue consuming power during MCU sleep. |
-| **1**, default | Green OK or red FAIL pulses at startup, contact changes and new reports, lasting 1–2 RTC ticks (about 31–63 ms). Yellow starts with TX and is capped at 50 ms. All normal LEDs are off during the long idle wait. |
+| **1**, default | Green heartbeat at startup and every **30 seconds**, illuminated for about **0.5 seconds**. Red stays **continuously on while the contact indicates FAIL**, and turns off on OK. Yellow starts with TX and is turned off at the first check after 50 ms or when TX ends. |
 | **2** | Normal LEDs disabled, including radio initialization indication. |
 
+The heartbeat runs independently of reports and contact changes. The MCU wakes
+briefly to switch green on/off and sleeps during the illuminated half-second;
+the GPIO output remains latched during STANDBY. Heartbeat wakeups do not sample
+the ADC, wake the radio, allocate a nonce or reschedule the next report. Red
+remains lit during MCU sleep when the SPD is faulty. Thus LED mode 1 adds two
+short CPU wakeups per 30-second heartbeat cycle, alongside any report/contact work.
+
 An EEPROM integrity/commit fault still blinks all LEDs and halts transmission in
-every mode. Fast LED pulses do not change whether a FAIL is reported.
+every mode. LED indications do not change whether a FAIL is reported.
 
 Several loads in the existing schematic cannot be switched off by firmware:
 
@@ -63,7 +70,7 @@ Several loads in the existing schematic cannot be switched off by firmware:
 | --- | --- |
 | SPD input's external 10 kΩ pull-up, contact closed | Approximately **330 µA**. |
 | 10 kΩ pull-up plus connected 10 kΩ NTC at 25°C | Approximately **165 µA**, varying with temperature. An unplugged NTC does not create this divider load. |
-| 680 Ω LED resistors | Steady LEDs draw milliamps, depending on LED forward voltage; mode 1/2 avoids this idle load. |
+| 680 Ω LED resistors | Steady LEDs draw milliamps, depending on LED forward voltage. Mode 1 limits green to a **1/60 duty cycle**, while red still draws continuously during a fault. Mode 2 disables normal LED loads. |
 | IRM-02 converter | Datasheet specifies no-load input power **less than 75 mW**. This is an upper specification, not a measured fixed floor or a 3.3 V output current. |
 
 The Wio-SX1262 module datasheet lists **1.62 µA** sleep current. This module figure

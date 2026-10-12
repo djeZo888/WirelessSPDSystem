@@ -59,8 +59,9 @@ enum { LOW=0, HIGH=1, INPUT=2, OUTPUT=3, INPUT_PULLUP=4,
 static uint8_t SREG = 0x80;
 static bool spdWakeRequested=false, spdFailRequested=false,
             rtcWakeRequested=false, pendingFailEvent=false,
-            radioInitialized=false, statusPulseActive=false;
-static uint16_t nextRadioRetryTick=0, statusPulseEndTick=0;
+            radioInitialized=false, greenPulseActive=false;
+static uint16_t nextRadioRetryTick=0, greenPulseEndTick=0,
+                nextGreenHeartbeatTick=960;
 static uint8_t lastSpdStatus=1;
 static bool haveLastGoodTemp=false;
 static int8_t lastGoodTempC=25;
@@ -190,7 +191,9 @@ static bool radioOk(int16_t);
 static uint16_t nowTicks();
 static void radioSleepRetain();
 static void signalStatus(uint8_t);
-static void finishStatusPulse(uint16_t);
+static void finishGreenPulse(uint16_t);
+static void startGreenHeartbeat(uint16_t);
+static void serviceGreenHeartbeat(uint16_t);
 static uint8_t readSpdStatusBit();
 static uint8_t readCellVoltageByte();
 static uint8_t readTempC_int8(int8_t&,uint16_t&,int16_t&);
@@ -220,14 +223,21 @@ static void resetIo(uint16_t now=0) {
   VPORTD.IN=0;
   injectedContact=injectedDeadline=false;
   spdWakeRequested=spdFailRequested=rtcWakeRequested=pendingFailEvent=false;
-  radioInitialized=true; statusPulseActive=false; lastSpdStatus=1;
-  nextRadioRetryTick=statusPulseEndTick=0;
+  radioInitialized=true; greenPulseActive=false; lastSpdStatus=1;
+  nextRadioRetryTick=greenPulseEndTick=0;
+  nextGreenHeartbeatTick=static_cast<uint16_t>(now+960);
   fakeMillis=dioReads=dioDoneAfter=0; neverDio=false;
   enabledSleep=false; sleeps=0; SPI.active=false; radio=FakeRadio();
   nonceNext=1; nonceCalls=adcConfigurations=adcConversions=initCalls=0;
   conversionFailure=-1; initializationSucceeds=true; ADC0.CTRLA=0;
   pinLevel[PIN_SPD_STATUS]=LOW;
   txSchedule.begin(now,160);
+}
+static void beginHeartbeat(uint16_t now) {
+  // These are the actual setup's two startup operations; timing decisions are
+  // made by the copied service/start/finish helper definitions below.
+  nextGreenHeartbeatTick=now;
+  serviceGreenHeartbeat(now);
 }
 static void testScheduler() {
   CHECK(secondsToTicksRounded(START_DELAY_S)==160);
@@ -397,8 +407,10 @@ static void testSleepAndLedModes() {
   resetIo(0); txSchedule.beginFailRetries(0,2,96); sleepUntilWork(); CHECK(RTC.CMP==96);
   resetIo(0); radioInitialized=false; nextRadioRetryTick=32;
   sleepUntilWork(); CHECK(RTC.CMP==32);
-  resetIo(0); statusPulseActive=true; statusPulseEndTick=2;
-  sleepUntilWork(); CHECK(RTC.CMP==2);
+#if WSPD_LED_MODE==1
+  resetIo(0); beginHeartbeat(0);
+  sleepUntilWork(); CHECK(RTC.CMP==16 && sleeps==1 && pinLevel[LED_PWR]==LOW);
+#endif
   resetIo(0); RTC.CNT=160; sleepUntilWork(); CHECK(sleeps==0);
   resetIo(0); spdWakeRequested=true; sleepUntilWork(); CHECK(sleeps==0);
   resetIo(0); pendingFailEvent=true; sleepUntilWork(); CHECK(sleeps==0);
@@ -407,20 +419,14 @@ static void testSleepAndLedModes() {
   resetIo(0); injectedDeadline=true; sleepUntilWork(); CHECK(sleeps==0);
   resetIo(0); signalStatus(1);
 #if WSPD_LED_MODE==0
-  CHECK(pinLevel[LED_PWR]==LOW && pinLevel[LED_SPD]==HIGH && !statusPulseActive);
+  CHECK(pinLevel[LED_PWR]==LOW && pinLevel[LED_SPD]==HIGH && !greenPulseActive);
   signalStatus(0); CHECK(pinLevel[LED_SPD]==LOW);
 #elif WSPD_LED_MODE==1
-  CHECK(pinLevel[LED_PWR]==LOW && pinLevel[LED_SPD]==HIGH && statusPulseActive);
-  CHECK(RTC.CMP==2 && RTC.INTCTRL==RTC_CMP_bm);
-  finishStatusPulse(1); CHECK(statusPulseActive);
-  // Execute the actual RTC ISR while foreground work could be committing EEPROM.
-  RTC.CNT=2; rtcCounterIsr();
-  CHECK(!statusPulseActive && pinLevel[LED_PWR]==HIGH && RTC.INTCTRL==0);
-  RTC.CNT=65535; signalStatus(0); CHECK(statusPulseEndTick==1);
-  finishStatusPulse(0); CHECK(statusPulseActive);
-  finishStatusPulse(1); CHECK(!statusPulseActive && pinLevel[LED_SPD]==HIGH);
+  CHECK(pinLevel[LED_PWR]==HIGH && pinLevel[LED_SPD]==HIGH && !greenPulseActive);
+  signalStatus(0); CHECK(pinLevel[LED_SPD]==LOW && pinLevel[LED_PWR]==HIGH);
+  signalStatus(1); CHECK(pinLevel[LED_SPD]==HIGH && !greenPulseActive);
 #else
-  CHECK(pinLevel[LED_PWR]==HIGH && pinLevel[LED_SPD]==HIGH && !statusPulseActive);
+  CHECK(pinLevel[LED_PWR]==HIGH && pinLevel[LED_SPD]==HIGH && !greenPulseActive);
   signalStatus(0); CHECK(pinLevel[LED_SPD]==HIGH);
 #endif
   resetIo(0); std::array<uint8_t,20> frame{};
@@ -433,6 +439,106 @@ static void testSleepAndLedModes() {
   CHECK(eventPosition("write:2:1")<eventPosition("radio-finish"));
 #else
   CHECK(eventCount("write:2:0")==0 && eventCount("delay:15")==0);
+#endif
+}
+static void testIndependentHeartbeat() {
+#if WSPD_LED_MODE==1
+  // Startup heartbeat is immediate, then anchored every30 seconds. It adds LED
+  // deadlines without changing report timing, sensor work or nonce allocation.
+  resetIo(0); beginHeartbeat(0);
+  CHECK(greenPulseActive && greenPulseEndTick==16 && nextGreenHeartbeatTick==960);
+  CHECK(pinLevel[LED_PWR]==LOW && pinLevel[LED_SPD]==HIGH);
+  sleepUntilWork();
+  CHECK(sleeps==1 && RTC.CMP==16 && !SPI.active && ADC0.CTRLA==0);
+  RTC.CNT=15; serviceGreenHeartbeat(RTC.CNT); CHECK(greenPulseActive);
+  RTC.CNT=16; rtcCounterIsr();
+  CHECK(!greenPulseActive && pinLevel[LED_PWR]==HIGH && nextGreenHeartbeatTick==960);
+  CHECK(adcConfigurations==0 && nonceCalls==0 && radio.frames.empty());
+
+  RTC.CNT=160; loop(); // The first regular report does not trigger or shift green.
+  CHECK(!greenPulseActive && pinLevel[LED_PWR]==HIGH && nextGreenHeartbeatTick==960);
+  CHECK(nonceCalls==1 && adcConfigurations==1);
+  RTC.CNT=200; pinLevel[PIN_SPD_STATUS]=HIGH; VPORTD.IN=PIN7_bm;
+  spdWakeIsr(); CHECK(pinLevel[LED_SPD]==LOW); loop();
+  CHECK(pinLevel[LED_SPD]==LOW && !greenPulseActive && nextGreenHeartbeatTick==960);
+  const auto fail=radio.frames.back();
+  for (uint16_t tick : {uint16_t(296),uint16_t(392)}) {
+    RTC.CNT=tick; loop();
+    CHECK(pinLevel[LED_SPD]==LOW && pinLevel[LED_PWR]==HIGH);
+    CHECK(!greenPulseActive && nextGreenHeartbeatTick==960);
+    CHECK(radio.frames.back()==fail && nonceCalls==2 && adcConfigurations==2);
+  }
+  RTC.CNT=959; serviceGreenHeartbeat(RTC.CNT);
+  CHECK(pinLevel[LED_PWR]==HIGH && pinLevel[LED_SPD]==LOW);
+  RTC.CNT=960; rtcCounterIsr();
+  CHECK(greenPulseActive && greenPulseEndTick==976 && nextGreenHeartbeatTick==1920);
+  CHECK(pinLevel[LED_PWR]==LOW && pinLevel[LED_SPD]==LOW);
+  CHECK(nonceCalls==2 && adcConfigurations==2 && radio.frames.size()==4);
+  sleepUntilWork();
+  CHECK(sleeps>0 && RTC.CMP==976 && pinLevel[LED_PWR]==LOW);
+  CHECK(pinLevel[LED_SPD]==LOW && !SPI.active && ADC0.CTRLA==0);
+  RTC.CNT=976; rtcCounterIsr();
+  CHECK(!greenPulseActive && pinLevel[LED_PWR]==HIGH && pinLevel[LED_SPD]==LOW);
+  RTC.CNT=980; pinLevel[PIN_SPD_STATUS]=LOW; VPORTD.IN=0;
+  spdWakeIsr(); CHECK(pinLevel[LED_SPD]==HIGH); loop();
+  CHECK(pinLevel[LED_SPD]==HIGH && nextGreenHeartbeatTick==1920);
+  // A later on-time heartbeat remains independent of any randomized TX deadline.
+  RTC.CNT=1920; serviceGreenHeartbeat(RTC.CNT);
+  CHECK(greenPulseActive && greenPulseEndTick==1936 && nextGreenHeartbeatTick==2880);
+  CHECK(pinLevel[LED_SPD]==HIGH);
+
+  resetIo(65530); beginHeartbeat(65530);
+  CHECK(greenPulseEndTick==10 && nextGreenHeartbeatTick==954);
+  RTC.CNT=9; serviceGreenHeartbeat(RTC.CNT); CHECK(greenPulseActive);
+  RTC.CNT=10; rtcCounterIsr(); CHECK(!greenPulseActive && pinLevel[LED_PWR]==HIGH);
+  RTC.CNT=953; serviceGreenHeartbeat(RTC.CNT); CHECK(!greenPulseActive);
+  RTC.CNT=954; rtcCounterIsr();
+  CHECK(greenPulseActive && greenPulseEndTick==970 && nextGreenHeartbeatTick==1914);
+  signalStatus(0); CHECK(pinLevel[LED_SPD]==LOW);
+  RTC.CNT=970; rtcCounterIsr(); CHECK(pinLevel[LED_SPD]==LOW && !greenPulseActive);
+
+  // Foreground work finishing late skips missed beats but preserves the original
+  // cadence; it never holds the CPU awake or loops through past LED flashes.
+  resetIo(0); beginHeartbeat(0); RTC.CNT=16; rtcCounterIsr();
+  RTC.CNT=3000; serviceGreenHeartbeat(RTC.CNT);
+  CHECK(nextGreenHeartbeatTick==3840 && greenPulseActive && greenPulseEndTick==3016);
+  CHECK(adcConfigurations==0 && nonceCalls==0);
+  RTC.CNT=3016; rtcCounterIsr(); CHECK(!greenPulseActive);
+  txSchedule.regularSent(3000,19200);
+  sleepUntilWork(); CHECK(RTC.CMP==3840 && sleeps==1);
+  // Simulate the pulse deadline passing during asynchronous CMP arm work.
+  resetIo(0); injectedDeadline=true; beginHeartbeat(0);
+  CHECK(!greenPulseActive && pinLevel[LED_PWR]==HIGH);
+
+  resetIo(0); radioInitialized=false; initializationSucceeds=false;
+  beginHeartbeat(0); RTC.CNT=16; rtcCounterIsr();
+  signalStatus(0); RTC.CNT=960; rtcCounterIsr();
+  CHECK(greenPulseActive && nextGreenHeartbeatTick==1920 && pinLevel[LED_SPD]==LOW);
+  CHECK(initCalls==0 && nonceCalls==0 && adcConfigurations==0 && radio.frames.empty());
+  nextRadioRetryTick=992;
+  sleepUntilWork(); CHECK(RTC.CMP==976 && sleeps==1 && pinLevel[LED_PWR]==LOW);
+  RTC.CNT=976; rtcCounterIsr();
+  CHECK(!greenPulseActive && pinLevel[LED_SPD]==LOW && pinLevel[LED_PWR]==HIGH);
+
+  // The RTC ISR alone keeps both edges armed while foreground work does not
+  // return. This exercises 30 s start -> 30.5 s end -> 60 s start, with red unchanged.
+  resetIo(0); beginHeartbeat(0); signalStatus(0);
+  RTC.CNT=16; rtcCounterIsr();
+  CHECK(RTC.INTCTRL==RTC_CMP_bm && RTC.CMP==960 && !greenPulseActive);
+  RTC.CNT=960; rtcCounterIsr();
+  CHECK(RTC.INTCTRL==RTC_CMP_bm && RTC.CMP==976 && greenPulseActive);
+  CHECK(pinLevel[LED_PWR]==LOW && pinLevel[LED_SPD]==LOW);
+  RTC.CNT=976; rtcCounterIsr();
+  CHECK(RTC.INTCTRL==RTC_CMP_bm && RTC.CMP==1920 && !greenPulseActive);
+  CHECK(pinLevel[LED_PWR]==HIGH && pinLevel[LED_SPD]==LOW);
+  RTC.CNT=1920; rtcCounterIsr();
+  CHECK(RTC.INTCTRL==RTC_CMP_bm && RTC.CMP==1936 && greenPulseActive);
+  CHECK(nextGreenHeartbeatTick==2880 && pinLevel[LED_SPD]==LOW);
+  CHECK(nonceCalls==0 && adcConfigurations==0 && radio.frames.empty());
+#else
+  resetIo(0); beginHeartbeat(0); serviceGreenHeartbeat(960);
+  CHECK(!greenPulseActive && pinLevel[LED_PWR]==HIGH);
+  CHECK(adcConfigurations==0 && nonceCalls==0);
 #endif
 }
 static void testClockAndInputGating() {
@@ -463,7 +569,8 @@ static void testClockAndInputGating() {
 int main() {
   try {
     testScheduler(); testRadio(); testAdcCleanup(); testLoopAndFailBurst();
-    testInitializationStall(); testSleepAndLedModes(); testClockAndInputGating();
+    testInitializationStall(); testSleepAndLedModes(); testIndependentHeartbeat();
+    testClockAndInputGating();
     std::cout << "PASS: " << checks << " native checks; LED=" << WSPD_LED_MODE
               << ", preproduction=" << WSPD_PREPRODUCTION << '\n';
   } catch (const std::exception& error) {
@@ -499,6 +606,9 @@ def inspect_hardware_paths(source):
     setup = function(source, "setup")
     if "attachInterrupt(digitalPinToInterrupt(PIN_SPD_STATUS), spdWakeIsr, CHANGE)" not in setup:
         raise AssertionError("Contact transitions must wake the MCU.")
+    if not re.search(r"nextGreenHeartbeatTick\s*=\s*nowTicks\(\);\s*"
+                     r"serviceGreenHeartbeat\(nextGreenHeartbeatTick\)", setup):
+        raise AssertionError("Startup must anchor and immediately service the heartbeat.")
     adc = function(source, "configureThermoAdc")
     if "PORT_ISC_INPUT_DISABLE_gc" not in adc:
         raise AssertionError("Analog input digital buffer is not disabled.")
@@ -510,10 +620,11 @@ def harness(source):
     thermo = source[source.index("// ---------------------- THERMISTOR"):
                     source.index("// ---------------------- SIMPLE PRNG")]
     # Native shims use symbolic pin names; these packet constants are copied.
-    packet = "\n".join(re.findall(r"(?m)^constexpr (?:uint8_t|size_t)\s+(?:BEACON_\w+|CELL_VOLTAGE_UNAVAILABLE)\s*=.*;", source))
+    packet = "\n".join(re.findall(r"(?m)^constexpr (?:uint8_t|uint16_t|size_t)\s+(?:BEACON_\w+|CELL_VOLTAGE_UNAVAILABLE|GREEN_\w+)\s*=.*;", source))
     names = ["xorshift32", "secondsToTicksRounded", "randomFloat01", "pickNextIntervalTicks",
              "nowTicks", "setupSleepClock", "disableUnusedInputBuffers",
-             "signalStatus", "finishStatusPulse", "rtcCounterIsr", "spdWakeIsr", "sleepUntilWork",
+             "signalStatus", "finishGreenPulse", "startGreenHeartbeat",
+             "serviceGreenHeartbeat", "rtcCounterIsr", "spdWakeIsr", "sleepUntilWork",
              "packUint64LE", "buildBeaconPacket", "radioOk", "radioPinsIdle",
              "radioSleepRetain", "transmitPacket", "sendBeaconEvent",
              "readSpdStatusBit", "readCellVoltageByte", "readThermoRaw10",

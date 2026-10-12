@@ -26,8 +26,10 @@ and EEPROM retention. The build and flash tools use this same profile.
 Between reports, the MCU uses **STANDBY** with a one-shot RTC compare, and the
 SX1262 uses **warm sleep** with its TCXO off. Contact changes wake the MCU;
 FAIL reports retain their immediate transmission and two identical repeats.
-The ADC and SPI are disabled during the wait. `WSPD_LED_MODE=1` (default) gives
-brief green/red status pulses and a short yellow TX indication. Select **0**
+The ADC and SPI are disabled during the wait. `WSPD_LED_MODE=1` (default) blinks
+green for **0.5 seconds every 30 seconds**, keeps red **on continuously during
+SPD fault**, and gives a short yellow TX indication. The MCU sleeps while green
+is illuminated, waking briefly at its on/off deadlines. Select **0**
 for the earlier steady green/red behavior or **2** to disable normal LEDs.
 All modes retain the EEPROM fault indication. See [power management and hardware
 current limits](../../../docs/power-management.md).

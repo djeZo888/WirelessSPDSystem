@@ -4,7 +4,7 @@ Compile-only checks use synthetic credentials:
 
 | Project | Flash | Global RAM | Result |
 | --- | ---: | ---: | --- |
-| AC-DC AVR128DA32 · sleep, LED mode 1 | 42,474 / 131,072 bytes | 1,541 / 16,384 bytes | Passed |
+| AC-DC AVR128DA32 · sleep, LED mode 1 | 42,636 / 131,072 bytes | 1,543 / 16,384 bytes | Passed |
 | Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
 | T Connect Pro v0.1 · 127 wireless + local | 862,429 / 3,145,728 bytes | 186,920 / 327,680 bytes | Passed |
 
@@ -72,12 +72,12 @@ The local programming station passed 25 offline checks and its 4 MHz testing
 compile. See [preproduction validation](../firmware/beacons/preproduction-validation.json).
 Private deployment keys, target backups and firmware images are excluded.
 
-AC-DC sleep checks (`python3 tests/check_acdc_sleep.py`) passed **253,714** native
+AC-DC sleep checks (`python3 tests/check_acdc_sleep.py`) passed **253,960** native
 assertions across all six LED/timing combinations with AddressSanitizer/UBSan.
 They execute the actual scheduler, main loop, contact/RTC ISRs, packet/TX helpers
 and peripheral shutdown paths using offline I/O shims. All three LED modes also
 compiled on AVR; the station's low-power preproduction build passed at
-42,474 bytes flash / 1,541 bytes RAM, with all **26** offline workflow checks.
+42,636 bytes flash / 1,543 bytes RAM, with all **27** offline workflow checks.
 The packet/nonce/fuse tests and all three compatibility builds passed.
 See [sleep validation evidence](../firmware/beacons/sleep-validation.json) and
 [power management](power-management.md). Physical wake timing, sleep current,

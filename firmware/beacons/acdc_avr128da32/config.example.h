@@ -46,7 +46,8 @@
 #define WSPD_PREPRODUCTION 0
 
 // Integer LED mode: 0 = steady green/red status (higher idle current),
-// 1 = brief green/red status pulses and a short yellow TX pulse (default),
+// 1 = green heartbeat 0.5 s every 30 s, steady red on SPD fault (default),
+//     and a short yellow TX pulse. MCU sleeps during the green on phase.
 // 2 = normal LEDs off. Storage faults always show the all-LED error pattern.
 // Range 0..2, inclusive. These indicators do not change packet contents.
 #define WSPD_LED_MODE 1

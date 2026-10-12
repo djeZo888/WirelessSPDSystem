@@ -42,7 +42,7 @@ static_assert(WSPD_PREPRODUCTION == 0 || WSPD_PREPRODUCTION == 1,
               "WSPD_PREPRODUCTION must be 0 (production) or 1 (testing).");
 static_assert(__builtin_classify_type(WSPD_LED_MODE) == 1 &&
                   WSPD_LED_MODE >= 0 && WSPD_LED_MODE <= 2,
-              "WSPD_LED_MODE must be 0 (steady), 1 (brief), or 2 (off).");
+              "WSPD_LED_MODE must be 0 (steady), 1 (heartbeat), or 2 (off).");
 static_assert(__builtin_classify_type(WSPD_SHARED_SECRET) == 1,
               "WSPD_SHARED_SECRET must be a 4-byte unsigned integer value.");
 static_assert(WSPD_SHARED_SECRET > 0 && WSPD_SHARED_SECRET <= 0xFFFFFFFFULL,
@@ -224,7 +224,9 @@ static void radioSleepRetain();
 static void radioPinsIdle();
 static uint16_t nowTicks();
 static void signalStatus(uint8_t spd);
-static void finishStatusPulse(uint16_t now);
+static void finishGreenPulse(uint16_t now);
+static void startGreenHeartbeat(uint16_t now);
+static void serviceGreenHeartbeat(uint16_t now);
 static void sleepUntilWork();
 static uint8_t readSpdStatusBit();
 static uint8_t readCellVoltageByte();
@@ -246,8 +248,11 @@ static volatile bool spdFailRequested = false;
 static bool pendingFailEvent = false;
 static bool radioInitialized = false;
 static uint16_t nextRadioRetryTick = 0;
-static volatile bool statusPulseActive = false;
-static volatile uint16_t statusPulseEndTick = 0;
+static volatile bool greenPulseActive = false;
+static volatile uint16_t greenPulseEndTick = 0;
+static volatile uint16_t nextGreenHeartbeatTick = 0;
+constexpr uint16_t GREEN_HEARTBEAT_TICKS = 30U * AcDcSleep::TICKS_PER_SECOND;
+constexpr uint16_t GREEN_ON_TICKS = AcDcSleep::TICKS_PER_SECOND / 2U;
 static uint8_t lastSpdStatus = 1;
 static bool    haveLastGoodTemp = false;
 static int8_t  lastGoodTempC = 25;
@@ -292,16 +297,37 @@ static uint16_t pickNextIntervalTicks() {
 ISR(RTC_CNT_vect) {
   RTC.INTFLAGS = RTC_CMP_bm | RTC_OVF_bm;
   RTC.INTCTRL = 0;  // one-shot; the main loop arms the next deadline
-  // A status pulse must end even while the main thread is writing EEPROM or
-  // waiting for TX. A later normal-work deadline is evaluated in the main loop.
-  finishStatusPulse(RTC.CNT);
+  // The green heartbeat is independent of reports/radio initialization. Its
+  // start/end must run even while foreground work is writing EEPROM or in TX.
+  // A normal-work deadline is evaluated separately in the main loop.
+  serviceGreenHeartbeat(RTC.CNT);
+#if WSPD_LED_MODE == 1
+  if (!greenPulseActive) {
+    // Preserve heartbeat cadence even if foreground work has not returned to
+    // the main loop by its next start. The main loop may replace this compare
+    // with an earlier report/retry deadline when it is ready to sleep.
+    while (RTC.STATUS & RTC_CMPBUSY_bm) { }
+    RTC.CMP = nextGreenHeartbeatTick;
+    while (RTC.STATUS & RTC_CMPBUSY_bm) { }
+    RTC.INTCTRL = RTC_CMP_bm;
+  }
+#endif
 }
 
 static void spdWakeIsr() {
   spdWakeRequested = true;
   // Latch an opening contact even if it closes again before the main loop runs.
   // PD7 supports CHANGE wake in STANDBY despite not being a Px2/Px6 pin.
-  if (VPORTD.IN & PIN7_bm) spdFailRequested = true;
+  if (VPORTD.IN & PIN7_bm) {
+    spdFailRequested = true;
+#if WSPD_LED_MODE == 1
+    ledOn(LED_SPD);
+#endif
+  } else {
+#if WSPD_LED_MODE == 1
+    ledOff(LED_SPD);
+#endif
+  }
 }
 
 static uint16_t nowTicks() {
@@ -365,47 +391,79 @@ static void signalStatus(uint8_t spd) {
   if (spd == 0) ledOn(LED_SPD);
   else ledOff(LED_SPD);
 #elif WSPD_LED_MODE == 1
-  const uint8_t savedSreg = SREG;
-  cli();
-  ledOff(LED_PWR);
-  ledOff(LED_SPD);
   if (spd == 0) ledOn(LED_SPD);
-  else ledOn(LED_PWR);
-  statusPulseEndTick = (uint16_t)(RTC.CNT + 2U);  // about 50 ms
-  statusPulseActive = true;
-  // This pulse may be followed by a relatively slow EEPROM commit. Arm its
-  // turn-off immediately so RTC can end it independently of that foreground work.
-  RTC.INTCTRL = 0;
-  RTC.INTFLAGS = RTC_CMP_bm | RTC_OVF_bm;
-  while (RTC.STATUS & RTC_CMPBUSY_bm) { }
-  RTC.CMP = statusPulseEndTick;
-  while (RTC.STATUS & RTC_CMPBUSY_bm) { }
-  if (AcDcSleep::reached(RTC.CNT, statusPulseEndTick)) {
-    finishStatusPulse(RTC.CNT);
-  } else {
-    RTC.INTCTRL = RTC_CMP_bm;
-  }
-  SREG = savedSreg;
+  else ledOff(LED_SPD);
 #else
   (void)spd;
 #endif
 }
 
-static void finishStatusPulse(uint16_t now) {
-  if (statusPulseActive && AcDcSleep::reached(now, statusPulseEndTick)) {
-    ledOff(LED_PWR);
-    ledOff(LED_SPD);
-    statusPulseActive = false;
+static void startGreenHeartbeat(uint16_t now) {
+#if WSPD_LED_MODE == 1
+  const uint8_t savedSreg = SREG;
+  cli();
+  ledOn(LED_PWR);
+  greenPulseEndTick = (uint16_t)(now + GREEN_ON_TICKS);
+  greenPulseActive = true;
+  // Anchor subsequent starts to the original 30-second cadence. Skip missed
+  // starts rather than replaying several pulses or drifting with radio work.
+  do {
+    nextGreenHeartbeatTick = (uint16_t)(nextGreenHeartbeatTick + GREEN_HEARTBEAT_TICKS);
+  } while (AcDcSleep::reached(now, nextGreenHeartbeatTick));
+
+  // Arm the 0.5-second turn-off now. This also works when called from the RTC
+  // ISR during a relatively slow foreground EEPROM commit or transmission.
+  RTC.INTCTRL = 0;
+  RTC.INTFLAGS = RTC_CMP_bm | RTC_OVF_bm;
+  while (RTC.STATUS & RTC_CMPBUSY_bm) { }
+  RTC.CMP = greenPulseEndTick;
+  while (RTC.STATUS & RTC_CMPBUSY_bm) { }
+  if (AcDcSleep::reached(RTC.CNT, greenPulseEndTick)) {
+    finishGreenPulse(RTC.CNT);
+  } else {
+    RTC.INTCTRL = RTC_CMP_bm;
   }
+  SREG = savedSreg;
+#else
+  (void)now;
+#endif
+}
+
+static void finishGreenPulse(uint16_t now) {
+  const uint8_t savedSreg = SREG;
+  cli();
+  if (greenPulseActive && AcDcSleep::reached(now, greenPulseEndTick)) {
+    ledOff(LED_PWR);
+    greenPulseActive = false;
+  }
+  SREG = savedSreg;
+}
+
+static void serviceGreenHeartbeat(uint16_t now) {
+#if WSPD_LED_MODE == 1
+  const uint8_t savedSreg = SREG;
+  cli();
+  finishGreenPulse(now);
+  if (AcDcSleep::reached(now, nextGreenHeartbeatTick)) startGreenHeartbeat(now);
+  SREG = savedSreg;
+#else
+  (void)now;
+#endif
 }
 
 static void sleepUntilWork() {
-  const uint16_t now = nowTicks();
+  // Heartbeat deadlines are written in the ISR. Snapshot their 16-bit values
+  // atomically together with the counter before selecting the earliest work.
+  cli();
+  const uint16_t now = RTC.CNT;
   uint16_t deadline = radioInitialized ? txSchedule.nextDeadline(now)
                                       : nextRadioRetryTick;
-  if (statusPulseActive) {
-    deadline = AcDcSleep::earlier(now, deadline, statusPulseEndTick);
+#if WSPD_LED_MODE == 1
+  deadline = AcDcSleep::earlier(now, deadline, nextGreenHeartbeatTick);
+  if (greenPulseActive) {
+    deadline = AcDcSleep::earlier(now, deadline, greenPulseEndTick);
   }
+#endif
 
   set_sleep_mode(SLEEP_MODE_STANDBY);
   cli();
@@ -445,8 +503,10 @@ static uint64_t allocateNonce() {
 // A storage fault must never turn into a replayed packet. All LEDs blink together
 // until serviced; this differs from the TX-only radio initialization indication.
 static void haltNonceStorageFault() {
-  statusPulseActive = false;
+  cli();
+  greenPulseActive = false;
   RTC.INTCTRL = 0;
+  sei();
   while (true) {
     ledOn(LED_PWR); ledOn(LED_TX); ledOn(LED_SPD);
     delay(250);
@@ -548,7 +608,7 @@ static bool transmitPacket(const uint8_t* pkt, size_t len) {
 #if WSPD_LED_MODE == 1
       if (elapsedMs >= 50UL) ledOff(LED_TX);
 #endif
-      finishStatusPulse(nowTicks());
+      serviceGreenHeartbeat(nowTicks());
       if (elapsedMs > timeoutMs) {
         state = RADIOLIB_ERR_TX_TIMEOUT;
         break;
@@ -905,6 +965,10 @@ void setup() {
   (void)loraInit();
   radioSleepRetain();
   signalStatus(readSpdStatusBit());
+#if WSPD_LED_MODE == 1
+  nextGreenHeartbeatTick = nowTicks();
+  serviceGreenHeartbeat(nextGreenHeartbeatTick);  // immediate startup heartbeat
+#endif
   txSchedule.begin(nowTicks(), secondsToTicksRounded(START_DELAY_S));
 }
 
@@ -925,7 +989,7 @@ void loop() {
 
   uint16_t now = nowTicks();
   txSchedule.observe(now);
-  finishStatusPulse(now);
+  serviceGreenHeartbeat(now);
 
   if (!radioInitialized && AcDcSleep::reached(now, nextRadioRetryTick)) {
     (void)loraInit();
@@ -957,7 +1021,7 @@ void loop() {
     }
   }
 
-  finishStatusPulse(nowTicks());
+  serviceGreenHeartbeat(nowTicks());
 #if WSPD_LED_MODE == 0
   signalStatus(readSpdStatusBit());
 #endif
