@@ -32,6 +32,11 @@ power setting.
 | `WSPD_BEACON_ID` | Integer **1–127**, unique within the receiver. **1–9** are reserved for preproduction; use **10–127** for production. ID **0** belongs only to the receiver's optional local contact. |
 | `WSPD_LORA_TX_DBM` | Integer **−9 to +22 dBm**, default **10**. This is the SX1262 software limit; choose power permitted for the frequency, antenna and installation. |
 | `WSPD_NONCE_START` | Integer **1–18,446,744,073,709,551,614** (`UINT64_MAX - 1`), with `ULL` suffix. Default **1**. Used only for completely erased EEPROM; an existing journal overrides it. See [nonce migration](nonce-storage.md). |
+| `WSPD_PREPRODUCTION` | Integer **0 or 1**, default **0**. Set **1** only for testing to select randomized **20–40 second** reports. **0**, including when an older config omits the flag, selects production intervals: **300–600 seconds** for AC-DC or **500–600 seconds** for battery. |
+
+The first regular report still follows the existing **5 second** startup delay.
+Return `WSPD_PREPRODUCTION` to **0** before deployment. This switch changes report
+timing without changing the packet format, hardware type or firmware version.
 
 The receiver registers each SPD with `{ ID, "friendly name", secret }`.
 Its `config.example.h` also documents ranges and units for network, display,
@@ -76,3 +81,20 @@ defaults are retained.
 References: [CEPT ERC Recommendation 70-03 and national implementation](https://docdb.cept.org/document/845),
 [Semtech SX1262](https://www.semtech.com/products/wireless-rf/lora-connect/sx1262),
 and [RadioLib SX1262 power configuration](https://github.com/jgromes/RadioLib/blob/7.8.1/src/modules/SX126x/SX1262.cpp).
+
+## Preproduction testing
+
+Set `WSPD_PREPRODUCTION` to **1** for randomized **20–40 second** reporting;
+set it to **0** (or omit it in an older private config) for the stock production
+interval. AC-DC uses **300–600 seconds** in production; battery retains its
+**500–600 second** stock interval. The AC-DC build profile uses **4 MHz internal**
+clock; battery retains its existing 24 MHz profile. Initial startup reporting
+still waits five seconds after radio initialization.
+
+Fast mode is for short bench tests. A 20-byte report at SF10/125 kHz/CR4/5,
+8-symbol preamble and CRC enabled occupies about **0.371 seconds**. Continuous
+20–40 second reporting averages about **1.24% airtime**, before fault repeats,
+and can exceed the 1% duty-cycle condition of the 865–868 MHz SRD sub-band.
+Do not leave this test mode running continuously in an ordinary installation;
+return to production intervals when testing is finished. See the
+[CEPT radio conditions](https://docdb.cept.org/document/845).

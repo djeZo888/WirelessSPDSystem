@@ -31,6 +31,10 @@ Edit the local file's **per-server** section: set `WSPD_SHARED_SECRET`,
 `WSPD_LORA_FREQ_MHZ` and `WSPD_LORA_SF` to the home's shared settings. Then set
 the **per-SPD** section: a unique `WSPD_BEACON_ID` (10–127 in production),
 `WSPD_LORA_TX_DBM` and the initial nonce if migrating an existing device.
+Leave `WSPD_PREPRODUCTION=0` for deployment; set it to `1` only during testing
+for randomized 20–40 second reports. Production timing is 300–600 seconds on
+AC-DC hardware and 500–600 seconds on battery hardware. The first regular
+report uses the existing 5 second startup delay in either mode.
 Generate one nonzero random four-byte key for the home and repeat it in each
 receiver registration. For example,
 `python3 -c 'import secrets; print("0x%08XUL" % (secrets.randbelow(0xFFFFFFFF)+1))'`.
@@ -60,8 +64,9 @@ python3 tools/firmware.py flash acdc
 # Substitute battery for the battery-powered board.
 ```
 
-The script selects no-bootloader AVR128DA32/DB32, 24 MHz internal clock, TCB2
-millis and RESET enabled; DB builds enable MVIO. Exact options are in each
+The script selects no-bootloader AVR128DA32 at **4 MHz internal clock** for AC-DC
+hardware, or AVR128DB32 at **24 MHz internal clock** for battery hardware. Both
+use TCB2 millis and RESET enabled; DB builds enable MVIO. Exact options are in each
 `build-options.json`. Upload writes flash with AVRDUDE verification and the
 DxCore upload recipe's fuse settings. Inspect existing BOD/watchdog/fuse state
 on the first target; these compile settings do not qualify battery clock/voltage

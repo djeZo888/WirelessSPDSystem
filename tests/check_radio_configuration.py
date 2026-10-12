@@ -6,6 +6,7 @@ The beacon checks use GCC because their AVR-compatible integral-type guard is
 not supported by every host compiler. Server checks use the host C++ compiler.
 """
 import argparse
+import json
 from pathlib import Path
 import re
 import shutil
@@ -164,6 +165,7 @@ def server_string_checks(work, compiler, config, guards, sketch):
 
 
 BEACON_CASES = {
+    "WSPD_PREPRODUCTION": [("0", True), ("1", True), ("-1", False), ("2", False), ("0.5f", False)],
     "WSPD_SHARED_SECRET": [
         ("0x00000001UL", True), ("0xFFFFFFFFUL", True), ("0UL", False),
         ("-1LL", False), ("0x100000000ULL", False), ("1.5f", False)],
@@ -238,6 +240,31 @@ SERVER_CASES = {
 }
 
 
+def check_interval_modes(work, compiler):
+    count = 0
+    for folder, production in [("acdc_avr128da32", (300, 600)),
+                               ("battery_avr128db32", (500, 600))]:
+        directory = BEACONS / folder
+        source = (directory / (folder + ".ino")).read_text()
+        fallback = re.search(r"#ifndef WSPD_PREPRODUCTION\n.*?#endif", source, re.S).group()
+        intervals = re.search(r"#if WSPD_PREPRODUCTION == 1\n.*?#endif", source, re.S).group()
+        for mode in (None, 0, 1):
+            definitions = "" if mode is None else f"#define WSPD_PREPRODUCTION {mode}\n"
+            driver = work / "intervals.cpp"
+            driver.write_text("#include <stdint.h>\n#include <cstdio>\n" + definitions
+                              + fallback + "\n" + intervals
+                              + '\nint main() { std::printf("%.0f %.0f", '
+                                '(double)TX_INTERVAL_SEC_MIN, (double)TX_INTERVAL_SEC_MAX); }\n')
+            binary = work / "intervals"
+            subprocess.run([compiler, "-std=c++11", str(driver), "-o", str(binary)], check=True)
+            actual = tuple(map(int, subprocess.check_output([str(binary)], text=True).split()))
+            assert actual == ((20, 40) if mode == 1 else production), (folder, mode, actual)
+            count += 1
+    profile = json.loads((BEACONS / "acdc_avr128da32/build-options.json").read_text())
+    assert "clock=4internal" in profile["fqbn"] and "eesave=enable" in profile["fqbn"]
+    return count
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--beacon-compiler", help="GCC/AVR GCC path; discovered by default")
@@ -249,6 +276,7 @@ def main():
         work = Path(temp)
         compiler = beacon_compiler(work, args.beacon_compiler)
         checks = GuardChecks(work)
+        interval_checks = check_interval_modes(work, args.host_compiler)
         for folder in ("acdc_avr128da32", "battery_avr128db32"):
             directory = BEACONS / folder
             sketch = (directory / (folder + ".ino")).read_text()
@@ -301,7 +329,8 @@ def main():
               f"({checks.accepted} valid settings accepted, {checks.rejected} invalid rejected); "
               "fixed modem settings and direct frequency use verified for all three sketches.")
         print(f"PASS: {runtime} runtime Wi-Fi configuration boundary cases using validateSpdConfig().")
-        print("Syntax checks do not qualify RF reception, antenna coverage, or legal sub-band operation.")
+    print(f"PASS: {interval_checks} actual interval selections, including omitted testing flag; AC-DC profile is 4 MHz with EEPROM retention.")
+    print("Syntax checks do not qualify RF reception, antenna coverage, or legal sub-band operation.")
 
 
 if __name__ == "__main__":

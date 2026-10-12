@@ -1,0 +1,94 @@
+{
+  "validated_utc": "2026-10-12T21:28:20.046426+00:00",
+  "beacon_firmware_versions": {
+    "hardware_1": 1,
+    "hardware_2": 1
+  },
+  "clock_mhz": {
+    "acdc": 4,
+    "battery": 24
+  },
+  "preproduction_interval_seconds": [
+    20,
+    40
+  ],
+  "production_interval_seconds": {
+    "acdc": [
+      300,
+      600
+    ],
+    "battery": [
+      500,
+      600
+    ]
+  },
+  "configuration_checks": 227,
+  "valid_accepted": 76,
+  "invalid_rejected": 151,
+  "runtime_configuration_checks": 17,
+  "interval_mode_checks": 6,
+  "local_station_offline_checks": 25,
+  "synthetic_production_builds": {
+    "acdc": {
+      "flash_bytes": 40742,
+      "ram_bytes": 1509
+    },
+    "battery": {
+      "flash_bytes": 42354,
+      "ram_bytes": 1539
+    },
+    "server": {
+      "flash_bytes": 862429,
+      "ram_bytes": 186920
+    }
+  },
+  "acdc_preproduction_compile": {
+    "flash_bytes": 40742,
+    "ram_bytes": 1509
+  },
+  "hardware": {
+    "acdc_flashed": true,
+    "full_flash_readback_matches": true,
+    "eeprom_retention_fuse_verified": true,
+    "continuous_bod_1v9_verified": true,
+    "hardware_reset_and_8ms_startup_verified": true,
+    "valid_advancing_nonce_journal_observed": true,
+    "tx_led_timing_confirmed_by_user": true,
+    "spd_ok_fail_led_confirmed_by_user": true,
+    "receiver_packet_acceptance": "pending",
+    "physical_power_interruption": "pending",
+    "battery_board": "not flashed"
+  },
+  "private_information": "Deployment keys, private configs, firmware images, target backups and programming logs remain outside Git.",
+  "source_files_sha256": {
+    "acdc": {
+      "acdc_avr128da32.ino": "4c4aeb6c2e2f1a8af473c90aa8adb35799d81e90370f0f979b629bcae0460bfd",
+      "build-options.json": "35cd7e6e4e3d9bf8e5cc477f5e38bc79dc1c85a9da34096314ca16da91a2560c",
+      "config.example.h": "1973962e007cdaa72aa8d33246819aa91682c5ed5d0665af020188a8c04a9538",
+      "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
+      "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
+    },
+    "battery": {
+      "battery_avr128db32.ino": "57546122576fea36d4859c9705df49a6e2385079b2d0fb4e2363c85ce638431e",
+      "build-options.json": "5fddbdda7b9b62c23d0c134d059ca536c57b91826c8d5848fcb477df23a71ace",
+      "config.example.h": "af794ff632bc5bfb15b0465e8759a03e37aed0eaaafa3bbfa42a1687610cab24",
+      "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
+      "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
+    },
+    "server": {
+      "board_pins.h": "00eeb632919c71978b7572e361aadfcca23d7db974d3fdd4667848244cf177e8",
+      "build-options.json": "b9e941473e4fa612e5600cbc01828284240cd2e5570c7956213514b7cd6c8dd1",
+      "config.example.h": "a529c4c056d29e552a492d999635e074851332974386e45851c37b142cc09e62",
+      "config_types.h": "31a49ff2ce88990c7d2b55893ab145c3b2e2250b1e92b81399d4bdcb70ae86e9",
+      "display_pages.h": "836d8777c1c6ecb949467d5768980b83b8cb15b0aa7e122ff89de45636aca6ce",
+      "tconnectpro_868.ino": "38e990e617ca1df0d5468633396bdb097786cc95f40f6e7dfe33bee338a6e7c6",
+      "version.h": "6036772dad0dfd12ec2f6a46f0dd2f1e6aca3b35649ce8baf24898d903fda9bf"
+    }
+  },
+  "reproduce": [
+    "python3 tests/check_radio_configuration.py",
+    "python3 tools/firmware.py validate acdc",
+    "python3 tools/firmware.py validate battery",
+    "python3 tools/firmware.py validate server"
+  ]
+}
