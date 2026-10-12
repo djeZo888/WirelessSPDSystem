@@ -25,7 +25,15 @@ Versions above are the firmware IDs transmitted in beacon packets. Each compatib
 
 ## Input fuse
 
+The **IRM-02-3.3** is specified for **85–305 VAC / 120–430 VDC**, according to
+the [Mean Well datasheet](https://www.meanwell.com/Upload/PDF/IRM-02/IRM-02-SPEC.pdf).
+Thus 230 VAC and 200–420 VDC are inside the converter's stated input range.
+This does not establish the voltage rating of the other fitted components.
+
 If the expected input voltage exceeds **250 VDC**, fit a **5 × 20 mm fuse with an explicit DC voltage rating at least as high as the maximum input voltage**. Many common 5 × 20 mm fuses are rated 250 V; an AC rating alone does not establish suitability for DC. For example, **Littelfuse 0477.500MXP** is a 500 mA time-lag cartridge fuse rated **400 VDC / 500 VAC** ([manufacturer datasheet](https://www.littelfuse.com/assetdocs/fuse-477-datasheet?assetguid=624ac410-146d-47dc-9971-cdaaa78f2c78)). Select current rating, time characteristic and breaking capacity for the circuit; the fuse rating does not increase the converter's input-voltage limit.
+
+That **400 VDC** example is insufficient for a **420 VDC** maximum input. Check
+the actual fitted fuse's DC rating before testing at that voltage.
 
 ## PCB fabrication files
 

@@ -293,6 +293,14 @@ def main():
                 for value, accepted in cases:
                     checks.check(compiler, replace_macro(config, field, value), guards,
                                  f"{folder} {field}={value}", accepted, field)
+            if folder == "acdc_avr128da32":
+                for value, accepted in [("0", True), ("1", True), ("2", True),
+                                        ("-1", False), ("3", False), ("1.5f", False)]:
+                    checks.check(compiler, replace_macro(config, "WSPD_LED_MODE", value), guards,
+                                 f"{folder} LED mode={value}", accepted, "WSPD_LED_MODE")
+                without_led_mode = re.sub(r"^#define WSPD_LED_MODE.*\n", "", config, flags=re.M)
+                checks.check(compiler, without_led_mode, guards,
+                             folder + " omitted LED mode", True)
             checks.check(compiler, config + "\n#define WSPD_LORA_CHANNEL_ID 1\n", guards,
                          folder + " old channel configuration", False,
                          "Replace WSPD_LORA_CHANNEL_ID with WSPD_LORA_FREQ_MHZ")

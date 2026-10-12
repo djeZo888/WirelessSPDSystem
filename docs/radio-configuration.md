@@ -33,10 +33,13 @@ power setting.
 | `WSPD_LORA_TX_DBM` | Integer **−9 to +22 dBm**, default **10**. This is the SX1262 software limit; choose power permitted for the frequency, antenna and installation. |
 | `WSPD_NONCE_START` | Integer **1–18,446,744,073,709,551,614** (`UINT64_MAX - 1`), with `ULL` suffix. Default **1**. Used only for completely erased EEPROM; an existing journal overrides it. See [nonce migration](nonce-storage.md). |
 | `WSPD_PREPRODUCTION` | Integer **0 or 1**, default **0**. Set **1** only for testing to select randomized **20–40 second** reports. **0**, including when an older config omits the flag, selects production intervals: **300–600 seconds** for AC-DC or **500–600 seconds** for battery. |
+| `WSPD_LED_MODE` | AC-DC hardware only. Integer **0–2**, default **1**, also when omitted. **0** keeps steady green/red and yellow throughout TX; **1** blinks green for **0.5 seconds every 30 seconds**, keeps red **continuously on while SPD is faulty**, and gives a yellow TX pulse of about 50 ms; **2** disables normal LEDs. EEPROM storage faults still blink all LEDs. |
 
 The first regular report still follows the existing **5 second** startup delay.
 Return `WSPD_PREPRODUCTION` to **0** before deployment. This switch changes report
 timing without changing the packet format, hardware type or firmware version.
+
+For AC-DC idle power and contact wake behavior, see [power management](power-management.md).
 
 The receiver registers each SPD with `{ ID, "friendly name", secret }`.
 Its `config.example.h` also documents ranges and units for network, display,

@@ -1,0 +1,141 @@
+{
+  "validated_utc": "2026-10-12T22:11:42.224335+00:00",
+  "scope": "Offline low-power AC-DC hardware 1 candidate, firmware identity 1; no target access.",
+  "mcu_sleep": "STANDBY",
+  "rtc_counter_hz": 32,
+  "rtc_cpu_wake": "Scheduled report/retry/heartbeat compare deadlines and PD7 CHANGE; no periodic PIT tick",
+  "radio_sleep": "Warm retained configuration; RTC off; TCXO off",
+  "sleep_bod": "Sampled 32 Hz; continuous active BOD retained",
+  "default_led_mode": 1,
+  "led_modes_tested": [
+    0,
+    1,
+    2
+  ],
+  "timing_modes_tested": [
+    "production",
+    "preproduction"
+  ],
+  "native_assertions_passed": 253960,
+  "native_sanitizers": [
+    "AddressSanitizer",
+    "UBSan"
+  ],
+  "actual_avr_production_builds": {
+    "led0": {
+      "flash_bytes": 42242,
+      "ram_bytes": 1543
+    },
+    "led1": {
+      "flash_bytes": 42636,
+      "ram_bytes": 1543
+    },
+    "led2": {
+      "flash_bytes": 42110,
+      "ram_bytes": 1543
+    }
+  },
+  "station_preproduction_compile": {
+    "flash_bytes": 42636,
+    "ram_bytes": 1543,
+    "clock_mhz": 4,
+    "preproduction": true,
+    "led_mode": 1,
+    "power_management": {
+      "mcu_sleep": "STANDBY",
+      "schedule_timer": "RTC",
+      "rtc_tick_hz": 32,
+      "radio_sleep": "warm",
+      "normal_green_led": "heartbeat",
+      "heartbeat_interval_s": 30,
+      "heartbeat_on_ms": 500,
+      "red_fault_led": "steady"
+    },
+    "manifest_format": 6,
+    "manifest_sha256": "0f4719942f8fc59bec12a7e9804e599ffcc0d672e661310b97869fbcb4e7af16",
+    "environment_lock_sha256": "a1e5bbe0bcd9d8ac3faa6bdf9a251fcb6dcecd7bb8b3ff9e9b2baaaab4ceac68",
+    "repository_source_match": true
+  },
+  "station_offline_tests_passed": 27,
+  "station_workflow_sha256": "72ffbf7d229e9e38e5f7ed42d79b62b77bc80585319497de05f5dafe5afba9e9",
+  "regressions": {
+    "configuration_compile_checks": 234,
+    "runtime_config_checks": 17,
+    "interval_modes": 6,
+    "packet_vectors": 8,
+    "persistent_nonce_checks": 5140,
+    "simulated_interrupted_transactions": 126,
+    "fuse_preparation_tests": 8,
+    "server_display_configurations": 17,
+    "server_api_configurations": 13
+  },
+  "synthetic_compatibility_builds": {
+    "acdc": {
+      "flash_bytes": 42636,
+      "ram_bytes": 1543
+    },
+    "battery": {
+      "flash_bytes": 42354,
+      "ram_bytes": 1539
+    },
+    "server": {
+      "flash_bytes": 862429,
+      "ram_bytes": 186920
+    }
+  },
+  "source_files_sha256": {
+    "acdc": {
+      "acdc_avr128da32.ino": "55708157540887e9f809f06eaa2cba61a104cb2c8a318b5b6a17f47e2d9b5d17",
+      "build-options.json": "35cd7e6e4e3d9bf8e5cc477f5e38bc79dc1c85a9da34096314ca16da91a2560c",
+      "config.example.h": "a60758f62a944e2d610023315a70c6a71355ea8e71c3652149f8a06497283023",
+      "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
+      "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753",
+      "sleep_schedule.h": "64a5556f862e19bd94dac25cf7f85bb2c896c53be49f0d50c180467eae6a5c94"
+    },
+    "battery": {
+      "battery_avr128db32.ino": "57546122576fea36d4859c9705df49a6e2385079b2d0fb4e2363c85ce638431e",
+      "build-options.json": "5fddbdda7b9b62c23d0c134d059ca536c57b91826c8d5848fcb477df23a71ace",
+      "config.example.h": "af794ff632bc5bfb15b0465e8759a03e37aed0eaaafa3bbfa42a1687610cab24",
+      "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
+      "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
+    },
+    "server": {
+      "board_pins.h": "00eeb632919c71978b7572e361aadfcca23d7db974d3fdd4667848244cf177e8",
+      "build-options.json": "b9e941473e4fa612e5600cbc01828284240cd2e5570c7956213514b7cd6c8dd1",
+      "config.example.h": "a529c4c056d29e552a492d999635e074851332974386e45851c37b142cc09e62",
+      "config_types.h": "31a49ff2ce88990c7d2b55893ab145c3b2e2250b1e92b81399d4bdcb70ae86e9",
+      "display_pages.h": "836d8777c1c6ecb949467d5768980b83b8cb15b0aa7e122ff89de45636aca6ce",
+      "tconnectpro_868.ino": "38e990e617ca1df0d5468633396bdb097786cc95f40f6e7dfe33bee338a6e7c6",
+      "version.h": "6036772dad0dfd12ec2f6a46f0dd2f1e6aca3b35649ce8baf24898d903fda9bf"
+    }
+  },
+  "test_source_sha256": "852620d9c1addfe87b3fec3bcee8c2128681dd5f7ec436c92fdd7303d5a14a33",
+  "target_programmed": false,
+  "usb_operations": false,
+  "physical_sleep_current_measured": false,
+  "physical_wake_tested": false,
+  "physical_rf_tested": false,
+  "reproduce": [
+    "python3 tests/check_acdc_sleep.py",
+    "python3 tests/check_radio_configuration.py",
+    "python3 tests/check_persistent_nonce.py",
+    "python3 tests/check_packet_compatibility.py",
+    "python3 tests/check_nonce_flash_fuses.py",
+    "python3 tools/firmware.py validate acdc",
+    "python3 tools/firmware.py validate battery",
+    "python3 tools/firmware.py validate server"
+  ],
+  "limitations": [
+    "Native I/O shims check actual control flow; asynchronous register timing and electrical current require board tests.",
+    "Existing programmed-unit records describe the earlier preproduction build, which did not sleep.",
+    "The fixed SPD pull-up, NTC divider and converter consumption remain hardware loads."
+  ],
+  "green_heartbeat": {
+    "interval_seconds": 30,
+    "on_milliseconds": 500,
+    "startup_pulse": true,
+    "mcu_sleeps_during_on_phase": true,
+    "independent_of_reports_and_radio": true
+  },
+  "red_fault_indicator": "Steady while actual SPD contact indicates FAIL"
+}

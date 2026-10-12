@@ -23,6 +23,17 @@ startup delay. Return the flag to `0` before deployment.
 The no-bootloader AVR128DA32 profile uses the **4 MHz internal clock**, PICkit 4,
 and EEPROM retention. The build and flash tools use this same profile.
 
+Between reports, the MCU uses **STANDBY** with a one-shot RTC compare, and the
+SX1262 uses **warm sleep** with its TCXO off. Contact changes wake the MCU;
+FAIL reports retain their immediate transmission and two identical repeats.
+The ADC and SPI are disabled during the wait. `WSPD_LED_MODE=1` (default) blinks
+green for **0.5 seconds every 30 seconds**, keeps red **on continuously during
+SPD fault**, and gives a short yellow TX indication. The MCU sleeps while green
+is illuminated, waking briefly at its on/off deadlines. Select **0**
+for the earlier steady green/red behavior or **2** to disable normal LEDs.
+All modes retain the EEPROM fault indication. See [power management and hardware
+current limits](../../../docs/power-management.md).
+
 The receiver listens at one configured frequency and spreading factor. Set the frequency directly in MHz; the former channel ID/map has been removed. Fixed modulation settings remain in the sketch.
 
 [Arduino sketch](acdc_avr128da32.ino) · [Configuration template](config.example.h) · [Build options](build-options.json)

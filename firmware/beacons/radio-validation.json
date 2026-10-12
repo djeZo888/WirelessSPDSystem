@@ -1,5 +1,5 @@
 {
-  "validated_utc": "2026-10-09T22:31:51.925272+00:00",
+  "validated_utc": "2026-10-12T22:11:42.224335+00:00",
   "firmware_versions": {
     "hardware_1": 1,
     "hardware_2": 1,
@@ -21,20 +21,20 @@
     "default": 10
   },
   "secret_bytes": 4,
-  "configuration_compile_checks": 217,
-  "valid_accepted": 72,
-  "invalid_rejected": 145,
+  "configuration_compile_checks": 234,
+  "valid_accepted": 80,
+  "invalid_rejected": 154,
   "runtime_configuration_checks": 17,
   "packet_vectors_passed": 8,
   "persistent_nonce_checks_passed": 5140,
   "fuse_preparation_tests_passed": 8,
   "server_display_configurations_passed": 17,
   "server_api_configurations_passed": 13,
-  "local_station_workflow_checks_passed": 21,
+  "local_station_workflow_checks_passed": 27,
   "synthetic_compile_passed": {
     "acdc": {
-      "flash_bytes": 40970,
-      "ram_bytes": 1509
+      "flash_bytes": 42636,
+      "ram_bytes": 1543
     },
     "battery": {
       "flash_bytes": 42354,
@@ -48,16 +48,17 @@
   "server_compile_configuration": "127 wireless SPDs plus local SPD 0",
   "source_files_sha256": {
     "acdc": {
-      "acdc_avr128da32.ino": "633c4952fd2969baf8d20739c2327090349c11700f4b517fa0291af42e418ef3",
-      "build-options.json": "53eb8927354f460c1e9f5b94236725df0303bcd32fe80593eb4ceda13cc6c275",
-      "config.example.h": "ae261563ae7834f96292d509eaba105496f48fcde281493850286e63b35cbfe8",
+      "acdc_avr128da32.ino": "55708157540887e9f809f06eaa2cba61a104cb2c8a318b5b6a17f47e2d9b5d17",
+      "build-options.json": "35cd7e6e4e3d9bf8e5cc477f5e38bc79dc1c85a9da34096314ca16da91a2560c",
+      "config.example.h": "a60758f62a944e2d610023315a70c6a71355ea8e71c3652149f8a06497283023",
       "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
-      "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
+      "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753",
+      "sleep_schedule.h": "64a5556f862e19bd94dac25cf7f85bb2c896c53be49f0d50c180467eae6a5c94"
     },
     "battery": {
-      "battery_avr128db32.ino": "b05bec324587527f645a182ada883a519f7e95754eb0987a0b03cdbb4a6533be",
+      "battery_avr128db32.ino": "57546122576fea36d4859c9705df49a6e2385079b2d0fb4e2363c85ce638431e",
       "build-options.json": "5fddbdda7b9b62c23d0c134d059ca536c57b91826c8d5848fcb477df23a71ace",
-      "config.example.h": "ae261563ae7834f96292d509eaba105496f48fcde281493850286e63b35cbfe8",
+      "config.example.h": "af794ff632bc5bfb15b0465e8759a03e37aed0eaaafa3bbfa42a1687610cab24",
       "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
       "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
     },
@@ -83,5 +84,6 @@
     "Carrier bounds are a project check; national/sub-band power, occupied bandwidth, antenna and airtime conditions require installation checks.",
     "The firmware does not enforce regulatory airtime budgets.",
     "No USB target or physical board was programmed."
-  ]
+  ],
+  "interval_mode_checks": 6
 }
