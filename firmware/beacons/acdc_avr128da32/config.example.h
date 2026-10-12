@@ -39,5 +39,11 @@
 // preserve EEPROM on every reflash. Blank EEPROM defaults to nonce 1.
 #define WSPD_NONCE_START 1ULL
 
+// Integer testing mode: min 0, max 1. Default 0 selects production timing.
+// Set 1 only during preproduction/testing for randomized 20..40 second reports.
+// Return to 0 before deployment for randomized 300..600 second reports.
+// Existing config files without this setting also use production timing.
+#define WSPD_PREPRODUCTION 0
+
 // Bandwidth, coding rate, sync word, preamble and radio CRC are fixed in the
 // sketch. Hardware type and firmware version are also fixed by this build.

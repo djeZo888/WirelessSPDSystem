@@ -30,8 +30,15 @@
 #ifndef WSPD_LORA_FREQ_MHZ
 #error "Set WSPD_LORA_FREQ_MHZ in config.h; beacon and receiver must match."
 #endif
+#ifndef WSPD_PREPRODUCTION
+#define WSPD_PREPRODUCTION 0
+#endif
 
 // Validate original configuration values before narrowing to packet/radio types.
+static_assert(__builtin_classify_type(WSPD_PREPRODUCTION) == 1,
+              "WSPD_PREPRODUCTION must be integer 0 (production) or 1 (testing).");
+static_assert(WSPD_PREPRODUCTION == 0 || WSPD_PREPRODUCTION == 1,
+              "WSPD_PREPRODUCTION must be 0 (production) or 1 (testing).");
 static_assert(__builtin_classify_type(WSPD_SHARED_SECRET) == 1,
               "WSPD_SHARED_SECRET must be a 4-byte unsigned integer value.");
 static_assert(WSPD_SHARED_SECRET > 0 && WSPD_SHARED_SECRET <= 0xFFFFFFFFULL,
@@ -83,9 +90,15 @@ constexpr uint8_t  CELL_VOLTAGE_MAX_CODE  = 150;  // 3.70 V; 151..254 intentiona
 const uint32_t START_DELAY_SEC = 5;
 
 // Regular beacon interval is chosen randomly inside this range.
-// Set these to e.g. 600..1800 for 10..30 minute randomized beaconing.
+#if WSPD_PREPRODUCTION == 1
+// Short interval for preproduction/testing only.
+const uint32_t TX_INTERVAL_SEC_MIN = 20;
+const uint32_t TX_INTERVAL_SEC_MAX = 40;
+#else
+// Retain the battery build's production interval.
 const uint32_t TX_INTERVAL_SEC_MIN = 500;
 const uint32_t TX_INTERVAL_SEC_MAX = 600;
+#endif
 
 // SPD status is sampled periodically while the MCU otherwise sleeps.
 // 60 s avoids powering the SPD status divider every second.

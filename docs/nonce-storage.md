@@ -80,7 +80,11 @@ Host tests exercise the exact journal header shared by both sketches, with cuts
 after every write at virgin provisioning and ring boundaries, dropped/corrupt
 writes, corrupt committed records, ordinary reboots and exhaustion. Packet tests
 exercise both actual encoders and the receiver tag verifier. See
-[validation](validation.md). No physical board was flashed for this change.
+[validation](validation.md). The original journal change was host-tested.
+A later 4 MHz AC-DC preproduction board passed full flash and fuse readback and
+showed a valid advancing EEPROM journal; see
+[preproduction evidence](../firmware/beacons/preproduction-validation.json).
+Physical power-interruption and receiver acceptance checks remain pending.
 
 Before accepting a production unit, receive a report, power-cycle it and verify
 that its next accepted nonce is greater while the receiver remains running. Repeat

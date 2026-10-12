@@ -1,5 +1,5 @@
 {
-  "validated_utc": "2026-10-09T22:26:18.507723+00:00",
+  "validated_utc": "2026-10-12T21:28:20.046426+00:00",
   "versions": {
     "Arduino_CLI": "1.5.1",
     "DxCore": "1.6.2",
@@ -10,20 +10,20 @@
   "builds": [
     {
       "sketch": "acdc_avr128da32",
-      "source_sha256": "633c4952fd2969baf8d20739c2327090349c11700f4b517fa0291af42e418ef3",
-      "fqbn": "DxCore:megaavr:avrda:chip=avr128da32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=enabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
+      "source_sha256": "4c4aeb6c2e2f1a8af473c90aa8adb35799d81e90370f0f979b629bcae0460bfd",
+      "fqbn": "DxCore:megaavr:avrda:chip=avr128da32,clock=4internal,millis=tcb2,bodvoltage=1v9,bodmode=enabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
       "example_config_sf": 10,
       "validation_config": "Synthetic non-production 32-bit secret; not flashed or included in this source tree.",
       "result": "passed",
       "memory_summary": [
-        "Sketch uses 40970 bytes (31%) of program storage space. Maximum is 131072 bytes.",
+        "Sketch uses 40742 bytes (31%) of program storage space. Maximum is 131072 bytes.",
         "Global variables use 1509 bytes (9%) of dynamic memory, leaving 14875 bytes for local variables. Maximum is 16384 bytes."
       ],
       "zero_secret_guard_passed": true,
       "source_files_sha256": {
-        "acdc_avr128da32.ino": "633c4952fd2969baf8d20739c2327090349c11700f4b517fa0291af42e418ef3",
-        "build-options.json": "53eb8927354f460c1e9f5b94236725df0303bcd32fe80593eb4ceda13cc6c275",
-        "config.example.h": "ae261563ae7834f96292d509eaba105496f48fcde281493850286e63b35cbfe8",
+        "acdc_avr128da32.ino": "4c4aeb6c2e2f1a8af473c90aa8adb35799d81e90370f0f979b629bcae0460bfd",
+        "build-options.json": "35cd7e6e4e3d9bf8e5cc477f5e38bc79dc1c85a9da34096314ca16da91a2560c",
+        "config.example.h": "1973962e007cdaa72aa8d33246819aa91682c5ed5d0665af020188a8c04a9538",
         "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
         "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
       },
@@ -31,11 +31,13 @@
       "validation_method": "tools/firmware.py validate with pinned isolated dependencies; tests/check_radio_configuration.py executes actual config guards",
       "zero_nonce_guard_passed": true,
       "missing_config_guard_present": true,
-      "radio_configuration_guards_passed": true
+      "radio_configuration_guards_passed": true,
+      "preproduction_flag": 0,
+      "preproduction_guards_passed": true
     },
     {
       "sketch": "battery_avr128db32",
-      "source_sha256": "b05bec324587527f645a182ada883a519f7e95754eb0987a0b03cdbb4a6533be",
+      "source_sha256": "57546122576fea36d4859c9705df49a6e2385079b2d0fb4e2363c85ce638431e",
       "fqbn": "DxCore:megaavr:avrdb:chip=avr128db32,clock=24internal,millis=tcb2,bodvoltage=1v9,bodmode=ensampslow,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,mvio=enabled,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
       "example_config_sf": 10,
       "validation_config": "Synthetic non-production 32-bit secret; not flashed or included in this source tree.",
@@ -48,18 +50,20 @@
       "validation_method": "tools/firmware.py validate with pinned isolated dependencies; tests/check_radio_configuration.py executes actual config guards",
       "compile_warnings": [],
       "source_files_sha256": {
-        "battery_avr128db32.ino": "b05bec324587527f645a182ada883a519f7e95754eb0987a0b03cdbb4a6533be",
+        "battery_avr128db32.ino": "57546122576fea36d4859c9705df49a6e2385079b2d0fb4e2363c85ce638431e",
         "build-options.json": "5fddbdda7b9b62c23d0c134d059ca536c57b91826c8d5848fcb477df23a71ace",
-        "config.example.h": "ae261563ae7834f96292d509eaba105496f48fcde281493850286e63b35cbfe8",
+        "config.example.h": "af794ff632bc5bfb15b0465e8759a03e37aed0eaaafa3bbfa42a1687610cab24",
         "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
         "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
       },
       "firmware_version": 1,
       "zero_nonce_guard_passed": true,
       "missing_config_guard_present": true,
-      "radio_configuration_guards_passed": true
+      "radio_configuration_guards_passed": true,
+      "preproduction_flag": 0,
+      "preproduction_guards_passed": true
     }
   ],
-  "hardware_flash_performed": false,
-  "hardware_validation": "Pending physical power-interruption, fuse/EEPROM retention, receiver acceptance and battery standby-current checks."
+  "hardware_flash_performed": true,
+  "hardware_validation": "One AC-DC preproduction board: full flash readback, BOD/EESAVE/reset/startup fuse readback and a committed advancing nonce verified. User confirmed 20\u201340 second TX LED timing and SPD OK/FAIL LED operation. Receiver acceptance, physical power-cut, battery board and endurance checks remain pending."
 }

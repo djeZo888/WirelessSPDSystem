@@ -25,8 +25,15 @@
 #ifndef WSPD_LORA_FREQ_MHZ
 #error "Set WSPD_LORA_FREQ_MHZ in config.h; beacon and receiver must match."
 #endif
+#ifndef WSPD_PREPRODUCTION
+#define WSPD_PREPRODUCTION 0
+#endif
 
 // Validate original configuration values before narrowing to packet/radio types.
+static_assert(__builtin_classify_type(WSPD_PREPRODUCTION) == 1,
+              "WSPD_PREPRODUCTION must be integer 0 (production) or 1 (testing).");
+static_assert(WSPD_PREPRODUCTION == 0 || WSPD_PREPRODUCTION == 1,
+              "WSPD_PREPRODUCTION must be 0 (production) or 1 (testing).");
 static_assert(__builtin_classify_type(WSPD_SHARED_SECRET) == 1,
               "WSPD_SHARED_SECRET must be a 4-byte unsigned integer value.");
 static_assert(WSPD_SHARED_SECRET > 0 && WSPD_SHARED_SECRET <= 0xFFFFFFFFULL,
@@ -77,8 +84,15 @@ constexpr size_t BEACON_PACKET_LEN = BEACON_DATA_LEN + BEACON_HASH_LEN;
 const float START_DELAY_S = 5.0f;
 
 // Regular beacon interval is chosen randomly inside this range.
+#if WSPD_PREPRODUCTION == 1
+// Short interval for preproduction/testing only.
+const float TX_INTERVAL_SEC_MIN = 20.0f;
+const float TX_INTERVAL_SEC_MAX = 40.0f;
+#else
+// Production interval; also selected by older config files without the flag.
 const float TX_INTERVAL_SEC_MIN = 300.0f;
 const float TX_INTERVAL_SEC_MAX = 600.0f;
+#endif
 
 // On transition OK -> FAIL, send one immediate FAIL beacon and then repeat the
 // exact same payload this many additional times.
