@@ -4,7 +4,7 @@ Compile-only checks use synthetic credentials:
 
 | Project | Flash | Global RAM | Result |
 | --- | ---: | ---: | --- |
-| AC-DC AVR128DA32 | 40,742 / 131,072 bytes | 1,509 / 16,384 bytes | Passed |
+| AC-DC AVR128DA32 · sleep, LED mode 1 | 42,474 / 131,072 bytes | 1,541 / 16,384 bytes | Passed |
 | Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
 | T Connect Pro v0.1 · 127 wireless + local | 862,429 / 3,145,728 bytes | 186,920 / 327,680 bytes | Passed |
 
@@ -48,17 +48,17 @@ and active BOD are established before flash upload. See
 The receiver's nonce comparison and 20-byte frame remain compatible.
 
 The original system was reported working by its author with both beacon variants.
-An AC-DC preproduction board has passed flash readback, fuse and nonce-journal
+An earlier AC-DC preproduction build has passed flash readback, fuse and nonce-journal
 checks. The operator confirmed TX LED timing and SPD OK/FAIL LED indications.
-Receiver reception and physical power-loss checks remain open. Battery standby
+The sleep revision has not been flashed. Receiver reception and physical power-loss checks remain open. Battery standby
 current, fuse/clock/voltage operation, RF performance, actual contact/alarm behavior
 and actual board wiring remain hardware acceptance checks. The hardware guide
 uses the recovered full battery schematic and production Gerbers; the earlier
 partial drawings and combined PDF have been removed.
 
 Radio configuration checks (`python3 tests/check_radio_configuration.py`) execute
-the actual firmware guards: 227 compile cases accept 76 valid settings and reject
-151 invalid settings, including fractional/wrapping integers, zero/oversized keys,
+the actual firmware guards: 234 compile cases accept 80 valid settings and reject
+154 invalid settings, including fractional/wrapping integers, zero/oversized keys,
 frequency endpoints, NaN/infinity, nonce bounds and obsolete channel configs.
 Seventeen runtime cases check the actual receiver Wi-Fi validator. All three
 sketches retain fixed modem settings and initialize the configured carrier
@@ -71,3 +71,14 @@ Preproduction checks also verify six actual interval selections (flag omitted,
 The local programming station passed 25 offline checks and its 4 MHz testing
 compile. See [preproduction validation](../firmware/beacons/preproduction-validation.json).
 Private deployment keys, target backups and firmware images are excluded.
+
+AC-DC sleep checks (`python3 tests/check_acdc_sleep.py`) passed **253,714** native
+assertions across all six LED/timing combinations with AddressSanitizer/UBSan.
+They execute the actual scheduler, main loop, contact/RTC ISRs, packet/TX helpers
+and peripheral shutdown paths using offline I/O shims. All three LED modes also
+compiled on AVR; the station's low-power preproduction build passed at
+42,474 bytes flash / 1,541 bytes RAM, with all **26** offline workflow checks.
+The packet/nonce/fuse tests and all three compatibility builds passed.
+See [sleep validation evidence](../firmware/beacons/sleep-validation.json) and
+[power management](power-management.md). Physical wake timing, sleep current,
+receiver reception and power-cycle behavior for this revision remain open.

@@ -11,7 +11,10 @@
 #include <usha256.h>
 #include <math.h>
 #include <string.h>
+#include <avr/interrupt.h>
+#include <avr/sleep.h>
 #include "nonce_eeprom.h"
+#include "sleep_schedule.h"
 
 // -----------------------------------------------------------------------------
 // DEHN SPD FM wireless beacon - previous AVR128DA32 hardware + Wio-SX1262
@@ -28,12 +31,18 @@
 #ifndef WSPD_PREPRODUCTION
 #define WSPD_PREPRODUCTION 0
 #endif
+#ifndef WSPD_LED_MODE
+#define WSPD_LED_MODE 1
+#endif
 
 // Validate original configuration values before narrowing to packet/radio types.
 static_assert(__builtin_classify_type(WSPD_PREPRODUCTION) == 1,
               "WSPD_PREPRODUCTION must be integer 0 (production) or 1 (testing).");
 static_assert(WSPD_PREPRODUCTION == 0 || WSPD_PREPRODUCTION == 1,
               "WSPD_PREPRODUCTION must be 0 (production) or 1 (testing).");
+static_assert(__builtin_classify_type(WSPD_LED_MODE) == 1 &&
+                  WSPD_LED_MODE >= 0 && WSPD_LED_MODE <= 2,
+              "WSPD_LED_MODE must be 0 (steady), 1 (brief), or 2 (off).");
 static_assert(__builtin_classify_type(WSPD_SHARED_SECRET) == 1,
               "WSPD_SHARED_SECRET must be a 4-byte unsigned integer value.");
 static_assert(WSPD_SHARED_SECRET > 0 && WSPD_SHARED_SECRET <= 0xFFFFFFFFULL,
@@ -86,18 +95,23 @@ const float START_DELAY_S = 5.0f;
 // Regular beacon interval is chosen randomly inside this range.
 #if WSPD_PREPRODUCTION == 1
 // Short interval for preproduction/testing only.
-const float TX_INTERVAL_SEC_MIN = 20.0f;
-const float TX_INTERVAL_SEC_MAX = 40.0f;
+constexpr float TX_INTERVAL_SEC_MIN = 20.0f;
+constexpr float TX_INTERVAL_SEC_MAX = 40.0f;
 #else
 // Production interval; also selected by older config files without the flag.
-const float TX_INTERVAL_SEC_MIN = 300.0f;
-const float TX_INTERVAL_SEC_MAX = 600.0f;
+constexpr float TX_INTERVAL_SEC_MIN = 300.0f;
+constexpr float TX_INTERVAL_SEC_MAX = 600.0f;
 #endif
 
 // On transition OK -> FAIL, send one immediate FAIL beacon and then repeat the
 // exact same payload this many additional times.
 const uint8_t SPDFAIL_RETX_COUNT = 2;      // 0 = disabled
 const float   SPDFAIL_RETX_DELAY = 3.0f;   // seconds between repeats
+
+static_assert(TX_INTERVAL_SEC_MIN > 0.0f && TX_INTERVAL_SEC_MIN <= TX_INTERVAL_SEC_MAX &&
+                  TX_INTERVAL_SEC_MAX * AcDcSleep::TICKS_PER_SECOND <=
+                      AcDcSleep::MAX_DELAY_TICKS,
+              "Report intervals must fit the RTC signed half range (below 1024 seconds).");
 
 // LoRa RF settings: one carrier frequency per receiver/home.
 const float   LORA_FREQ_MHZ = WSPD_LORA_FREQ_MHZ;
@@ -131,6 +145,9 @@ const uint8_t LORA_RST   = PIN_PC1;
 const uint8_t LORA_BUSY  = PIN_PC2;
 const uint8_t LORA_DIO1  = PIN_PC3;
 const uint8_t LORA_RFSW  = PIN_PC0;
+const uint8_t LORA_MOSI  = PIN_PA4;
+const uint8_t LORA_MISO  = PIN_PA5;
+const uint8_t LORA_SCK   = PIN_PA6;
 
 // Inputs
 const uint8_t PIN_SPD_STATUS = PIN_PD7;
@@ -202,7 +219,13 @@ SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
 static bool radioOk(int16_t state);
 static bool loraInit();
 static bool transmitPacket(const uint8_t* pkt, size_t len);
-static void sendBeaconEvent(uint8_t spd, int8_t temp, bool burstFailRepeats);
+static void sendBeaconEvent(uint8_t spd, bool burstFailRepeats);
+static void radioSleepRetain();
+static void radioPinsIdle();
+static uint16_t nowTicks();
+static void signalStatus(uint8_t spd);
+static void finishStatusPulse(uint16_t now);
+static void sleepUntilWork();
 static uint8_t readSpdStatusBit();
 static uint8_t readCellVoltageByte();
 static void configureThermoAdc();
@@ -216,7 +239,15 @@ static void haltNonceStorageFault() __attribute__((noreturn));
 
 static AvrNonceStorage nonceStorage;
 static PersistentNonceJournal<AvrNonceStorage> nonceJournal(nonceStorage);
-static uint32_t nextTxMs = 0;
+static AcDcSleep::Schedule txSchedule;
+static uint8_t failRepeatPacket[BEACON_PACKET_LEN];
+static volatile bool spdWakeRequested = false;
+static volatile bool spdFailRequested = false;
+static bool pendingFailEvent = false;
+static bool radioInitialized = false;
+static uint16_t nextRadioRetryTick = 0;
+static volatile bool statusPulseActive = false;
+static volatile uint16_t statusPulseEndTick = 0;
 static uint8_t lastSpdStatus = 1;
 static bool    haveLastGoodTemp = false;
 static int8_t  lastGoodTempC = 25;
@@ -230,11 +261,11 @@ static uint32_t xorshift32() {
   return x;
 }
 
-static uint32_t secondsToMsRounded(float seconds) {
+static uint16_t secondsToTicksRounded(float seconds) {
   if (seconds <= 0.0f) return 0;
-  float ms = seconds * 1000.0f;
-  if (ms >= 4294967000.0f) return 0xFFFFFFFFUL;
-  return (uint32_t)lroundf(ms);
+  const float ticks = seconds * AcDcSleep::TICKS_PER_SECOND;
+  if (ticks >= AcDcSleep::MAX_DELAY_TICKS) return AcDcSleep::MAX_DELAY_TICKS;
+  return (uint16_t)lroundf(ticks);
 }
 
 static float randomFloat01() {
@@ -242,7 +273,7 @@ static float randomFloat01() {
   return (float)(xorshift32() & 0x00FFFFFFUL) / 16777215.0f;
 }
 
-static uint32_t pickNextIntervalMs() {
+static uint16_t pickNextIntervalTicks() {
   float lo = TX_INTERVAL_SEC_MIN;
   float hi = TX_INTERVAL_SEC_MAX;
   if (hi < lo) {
@@ -251,7 +282,158 @@ static uint32_t pickNextIntervalMs() {
     lo = tmp;
   }
   float seconds = (hi > lo) ? (lo + (hi - lo) * randomFloat01()) : lo;
-  return secondsToMsRounded(seconds);
+  return secondsToTicksRounded(seconds);
+}
+
+// ---------------------- LOW-POWER TIMEBASE ----------------------
+// Unlike millis()/TCB2, this counter runs with the CPU/high-frequency clock off.
+// Only the next work deadline generates an interrupt; there is no periodic CPU
+// tick while waiting. RTC CNT needs STANDBY (POWER_DOWN supports only the PIT).
+ISR(RTC_CNT_vect) {
+  RTC.INTFLAGS = RTC_CMP_bm | RTC_OVF_bm;
+  RTC.INTCTRL = 0;  // one-shot; the main loop arms the next deadline
+  // A status pulse must end even while the main thread is writing EEPROM or
+  // waiting for TX. A later normal-work deadline is evaluated in the main loop.
+  finishStatusPulse(RTC.CNT);
+}
+
+static void spdWakeIsr() {
+  spdWakeRequested = true;
+  // Latch an opening contact even if it closes again before the main loop runs.
+  // PD7 supports CHANGE wake in STANDBY despite not being a Px2/Px6 pin.
+  if (VPORTD.IN & PIN7_bm) spdFailRequested = true;
+}
+
+static uint16_t nowTicks() {
+  const uint8_t savedSreg = SREG;
+  cli();
+  const uint16_t now = RTC.CNT;
+  SREG = savedSreg;
+  return now;
+}
+
+static void setupSleepClock() {
+  // The station selects TCB2 for millis. Keep it available for awake RadioLib
+  // timeouts, but explicitly prevent it from requesting CLK_PER during STANDBY.
+  TCB2.CTRLA &= (uint8_t)~TCB_RUNSTDBY_bm;
+  while (RTC.STATUS) { }
+  RTC.CTRLA = 0;
+  while (RTC.STATUS) { }
+  RTC.PITINTCTRL = 0;
+  while (RTC.PITSTATUS) { }
+  RTC.PITCTRLA = 0;
+  RTC.INTCTRL = 0;
+  RTC.INTFLAGS = RTC_CMP_bm | RTC_OVF_bm;
+  RTC.CLKSEL = RTC_CLKSEL_OSC1K_gc;  // OSC32K / 32 = 1024 Hz
+  RTC.CNT = 0;
+  while (RTC.STATUS) { }
+  RTC.PER = 0xFFFF;
+  while (RTC.STATUS) { }
+  RTC.CTRLA = RTC_RUNSTDBY_bm | RTC_PRESCALER_DIV32_gc | RTC_RTCEN_bm;
+  while (RTC.STATUS) { }
+
+  // Keep continuous active BOD for EEPROM writes. Only the sleep behavior is
+  // changed: sampled at 32 Hz instead of continuous while the CPU is stopped.
+  _PROTECTED_WRITE(BOD.CTRLA,
+      (BOD.CTRLA & (uint8_t)~BOD_SLEEP_gm) |
+      BOD_SLEEP_SAMPLED_gc | BOD_SAMPFREQ_bm);
+}
+
+static void disableUnusedInputBuffers() {
+  // Confirmed NC pins in the AC/DC schematic. Disable their floating digital
+  // input buffers without driving a PCB pad; RESET/UPDI and every used pin stay
+  // untouched. The thermistor input is disabled separately by its ADC setup.
+  PORTA.PIN0CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTA.PIN2CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTA.PIN3CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTD.PIN1CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTD.PIN2CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTD.PIN3CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTD.PIN4CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTD.PIN5CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTD.PIN6CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTF.PIN0CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTF.PIN1CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTF.PIN2CTRL = PORT_ISC_INPUT_DISABLE_gc;
+  PORTF.PIN3CTRL = PORT_ISC_INPUT_DISABLE_gc;
+}
+
+static void signalStatus(uint8_t spd) {
+#if WSPD_LED_MODE == 0
+  if (radioInitialized) ledOn(LED_PWR);
+  else ledOff(LED_PWR);
+  if (spd == 0) ledOn(LED_SPD);
+  else ledOff(LED_SPD);
+#elif WSPD_LED_MODE == 1
+  const uint8_t savedSreg = SREG;
+  cli();
+  ledOff(LED_PWR);
+  ledOff(LED_SPD);
+  if (spd == 0) ledOn(LED_SPD);
+  else ledOn(LED_PWR);
+  statusPulseEndTick = (uint16_t)(RTC.CNT + 2U);  // about 50 ms
+  statusPulseActive = true;
+  // This pulse may be followed by a relatively slow EEPROM commit. Arm its
+  // turn-off immediately so RTC can end it independently of that foreground work.
+  RTC.INTCTRL = 0;
+  RTC.INTFLAGS = RTC_CMP_bm | RTC_OVF_bm;
+  while (RTC.STATUS & RTC_CMPBUSY_bm) { }
+  RTC.CMP = statusPulseEndTick;
+  while (RTC.STATUS & RTC_CMPBUSY_bm) { }
+  if (AcDcSleep::reached(RTC.CNT, statusPulseEndTick)) {
+    finishStatusPulse(RTC.CNT);
+  } else {
+    RTC.INTCTRL = RTC_CMP_bm;
+  }
+  SREG = savedSreg;
+#else
+  (void)spd;
+#endif
+}
+
+static void finishStatusPulse(uint16_t now) {
+  if (statusPulseActive && AcDcSleep::reached(now, statusPulseEndTick)) {
+    ledOff(LED_PWR);
+    ledOff(LED_SPD);
+    statusPulseActive = false;
+  }
+}
+
+static void sleepUntilWork() {
+  const uint16_t now = nowTicks();
+  uint16_t deadline = radioInitialized ? txSchedule.nextDeadline(now)
+                                      : nextRadioRetryTick;
+  if (statusPulseActive) {
+    deadline = AcDcSleep::earlier(now, deadline, statusPulseEndTick);
+  }
+
+  set_sleep_mode(SLEEP_MODE_STANDBY);
+  cli();
+  if (spdWakeRequested || (pendingFailEvent && radioInitialized) ||
+      AcDcSleep::reached(RTC.CNT, deadline)) {
+    sei();
+    return;
+  }
+
+  RTC.INTCTRL = 0;
+  RTC.INTFLAGS = RTC_CMP_bm | RTC_OVF_bm;
+  while (RTC.STATUS & RTC_CMPBUSY_bm) { }
+  RTC.CMP = deadline;
+  while (RTC.STATUS & RTC_CMPBUSY_bm) { }
+
+  // A deadline/contact may arrive during asynchronous register synchronization.
+  // Never clear the newly armed flag after this final check.
+  if (spdWakeRequested || AcDcSleep::reached(RTC.CNT, deadline)) {
+    sei();
+    return;
+  }
+  RTC.INTCTRL = RTC_CMP_bm;
+  sleep_enable();
+  // AVR guarantees the instruction following SEI runs before servicing an ISR.
+  // SLEEP must immediately follow, so an edge cannot be consumed before sleep.
+  sei();
+  sleep_cpu();
+  sleep_disable();
 }
 
 static uint64_t allocateNonce() {
@@ -263,6 +445,8 @@ static uint64_t allocateNonce() {
 // A storage fault must never turn into a replayed packet. All LEDs blink together
 // until serviced; this differs from the TX-only radio initialization indication.
 static void haltNonceStorageFault() {
+  statusPulseActive = false;
+  RTC.INTCTRL = 0;
   while (true) {
     ledOn(LED_PWR); ledOn(LED_TX); ledOn(LED_SPD);
     delay(250);
@@ -309,39 +493,97 @@ static bool radioOk(int16_t state) {
   return (state == RADIOLIB_ERR_NONE);
 }
 
-static bool transmitPacket(const uint8_t* pkt, size_t len) {
-  ledOn(LED_TX);
-  delay(15);
-  int16_t state = radio.transmit(pkt, len);
-  ledOff(LED_TX);
-
-  if (!radioOk(state)) {
-    while (!loraInit()) {
-      ledOn(LED_TX);
-      delay(50);
-      ledOff(LED_TX);
-      delay(450);
-    }
-    ledOn(LED_PWR);
-    return false;
-  }
-  return true;
+static void radioPinsIdle() {
+  digitalWrite(LORA_RFSW, LOW);
+  digitalWrite(LORA_NSS, HIGH);
+  digitalWrite(LORA_SCK, LOW);
+  digitalWrite(LORA_MOSI, LOW);
+  pinMode(LORA_RFSW, OUTPUT);
+  pinMode(LORA_NSS, OUTPUT);
+  pinMode(LORA_SCK, OUTPUT);
+  pinMode(LORA_MOSI, OUTPUT);
+  // The SX1262 releases MISO during sleep; prevent a floating AVR input.
+  pinMode(LORA_MISO, INPUT_PULLUP);
 }
 
-static void sendBeaconEvent(uint8_t spd, int8_t temp, bool burstFailRepeats) {
+static void radioSleepRetain() {
+  if (radioInitialized) {
+    // This command has to finish before disabling the SPI peripheral.
+    const int16_t state = radio.sleep(true);
+    if (!radioOk(state)) {
+      radioInitialized = false;
+      // A failed sleep transaction must not leave the radio active indefinitely.
+      digitalWrite(LORA_RST, LOW);
+    }
+  } else {
+    digitalWrite(LORA_RST, LOW);
+  }
+  SPI.end();
+  radioPinsIdle();
+  if (!radioInitialized) {
+    nextRadioRetryTick = (uint16_t)(nowTicks() + AcDcSleep::TICKS_PER_SECOND);
+  }
+}
+
+static bool transmitPacket(const uint8_t* pkt, size_t len) {
+#if WSPD_LED_MODE == 0
+  ledOn(LED_TX);
+  delay(15);
+#endif
+
+  SPI.begin();
+  pinMode(LORA_MISO, INPUT);  // restore the live bus after its sleep pull-up
+  int16_t state = radio.standby();
+  if (radioOk(state)) state = radio.startTransmit(pkt, len);
+  if (radioOk(state)) {
+#if WSPD_LED_MODE == 1
+    ledOn(LED_TX);
+#endif
+    // Match RadioLib's bounded TX timeout. millis/TCB2 runs only while awake;
+    // the long report/retry waits always use RTC CNT instead.
+    const uint32_t timeoutMs = 5UL + (radio.getTimeOnAir(len) * 5UL) / 1000UL;
+    const uint32_t startedMs = millis();
+    while (digitalRead(LORA_DIO1) == LOW) {
+      const uint32_t elapsedMs = millis() - startedMs;
+#if WSPD_LED_MODE == 1
+      if (elapsedMs >= 50UL) ledOff(LED_TX);
+#endif
+      finishStatusPulse(nowTicks());
+      if (elapsedMs > timeoutMs) {
+        state = RADIOLIB_ERR_TX_TIMEOUT;
+        break;
+      }
+    }
+    const int16_t finishState = radio.finishTransmit();
+    if (radioOk(state)) state = finishState;
+  }
+  ledOff(LED_TX);
+  if (!radioOk(state)) radioInitialized = false;
+  radioSleepRetain();
+  return radioOk(state) && radioInitialized;
+}
+
+static void sendBeaconEvent(uint8_t spd, bool burstFailRepeats) {
+  const uint16_t startedTick = nowTicks();
+  int8_t tempMeasured = 0;
+  uint16_t rawTemp = 0;
+  int16_t adcErr = 0;
+  const uint8_t tempStatus = readTempC_int8(tempMeasured, rawTemp, adcErr);
+  const int8_t temp = chooseTempToTransmit(tempStatus, tempMeasured);
   uint8_t pkt[BEACON_PACKET_LEN];
   uint64_t nonce = allocateNonce();
   const uint8_t cellVoltageByte = readCellVoltageByte();
   buildBeaconPacket(spd, temp, nonce, cellVoltageByte, pkt);
 
+  if (burstFailRepeats) memcpy(failRepeatPacket, pkt, sizeof(pkt));
+  txSchedule.regularSent(startedTick, pickNextIntervalTicks());
+  signalStatus(readSpdStatusBit());
+
   transmitPacket(pkt, sizeof(pkt));
 
   if (burstFailRepeats && SPDFAIL_RETX_COUNT > 0) {
-    const uint32_t delayMs = secondsToMsRounded(SPDFAIL_RETX_DELAY);
-    for (uint8_t i = 0; i < SPDFAIL_RETX_COUNT; i++) {
-      if (delayMs > 0) delay(delayMs);
-      transmitPacket(pkt, sizeof(pkt));
-    }
+    txSchedule.beginFailRetries(nowTicks(), SPDFAIL_RETX_COUNT,
+                                secondsToTicksRounded(SPDFAIL_RETX_DELAY));
   }
 }
 
@@ -423,7 +665,7 @@ static void configureThermoAdc() {
   ADC0.CTRLE = 0x00;                       // window comparator off
 
   // Use a conservative ADC clock if the selected device header exposes a
-  // suitable prescaler constant.  At F_CPU=24 MHz, DIV32 gives about 750 kHz.
+  // suitable prescaler constant. At F_CPU=4 MHz, DIV32 gives about 125 kHz.
   ADC0.CTRLC = ADC_PRESC_DIV32_gc;
 
   ADC0.SAMPCTRL = TEMP_ADC_SAMPLE_DURATION;
@@ -483,6 +725,9 @@ static bool readThermoRaw10(uint16_t& rawOut, int16_t& adcErrOut) {
   uint16_t discard = 0;
   if (!readAdc0Ain0Single10(discard)) {
     adcErrOut = -30000;
+#if defined(ADC0)
+    ADC0.CTRLA = 0;
+#endif
     return false;
   }
 
@@ -491,6 +736,9 @@ static bool readThermoRaw10(uint16_t& rawOut, int16_t& adcErrOut) {
     uint16_t v = 0;
     if (!readAdc0Ain0Single10(v)) {
       adcErrOut = -30000;
+#if defined(ADC0)
+      ADC0.CTRLA = 0;
+#endif
       return false;
     }
     sum += v;
@@ -499,6 +747,9 @@ static bool readThermoRaw10(uint16_t& rawOut, int16_t& adcErrOut) {
 
   adcErrOut = 0;
   rawOut = (uint16_t)((sum + (TEMP_ADC_SAMPLES / 2)) / TEMP_ADC_SAMPLES);
+#if defined(ADC0)
+  ADC0.CTRLA = 0;  // no ADC/reference activity between measurements
+#endif
   return true;
 }
 
@@ -561,6 +812,7 @@ static int8_t chooseTempToTransmit(uint8_t status, int8_t latestTemp) {
 }
 
 static bool loraInit() {
+  radioInitialized = false;
   // Wio-SX1262 external RF_SW pin is HIGH only in RX mode.
   // Hold LOW until RadioLib takes ownership.
   pinMode(LORA_RFSW, OUTPUT);
@@ -568,6 +820,9 @@ static bool loraInit() {
 
   // No custom PORTMUX is needed: the PCB uses the AVR128DA32 default SPI0 pins.
   SPI.begin();
+  pinMode(LORA_MISO, INPUT);
+  pinMode(LORA_RST, OUTPUT);
+  digitalWrite(LORA_RST, HIGH);
 
   int16_t state = radio.begin(
     LORA_FREQ_MHZ,
@@ -598,6 +853,7 @@ static bool loraInit() {
   // External module RF_SW pin: HIGH only in RX, LOW otherwise.
   radio.setRfSwitchPins(LORA_RFSW, RADIOLIB_NC);
 
+  radioInitialized = true;
   return true;
 }
 
@@ -616,6 +872,11 @@ void setup() {
   // Inputs
   pinMode(PIN_SPD_STATUS, INPUT);   // external pullup/front-end assumed present
   pinMode(PIN_THERMO, INPUT);
+
+  disableUnusedInputBuffers();
+  setupSleepClock();
+  lastSpdStatus = readSpdStatusBit();
+  attachInterrupt(digitalPinToInterrupt(PIN_SPD_STATUS), spdWakeIsr, CHANGE);
 
   // Configure ADC before first use.
   configureThermoAdc();
@@ -639,47 +900,66 @@ void setup() {
     haveLastGoodTemp = true;
   }
 
-  // Init radio (retry forever, like the old sketch)
-  while (!loraInit()) {
-    ledOn(LED_TX);
-    delay(50);
-    ledOff(LED_TX);
-    delay(450);
-  }
-
-  ledOn(LED_PWR);
-  lastSpdStatus = readSpdStatusBit();
-  nextTxMs = millis() + secondsToMsRounded(START_DELAY_S);
+  // One initialization attempt; errors retry once per second while otherwise
+  // sleeping, rather than keeping the MCU/radio active in an infinite loop.
+  (void)loraInit();
+  radioSleepRetain();
+  signalStatus(readSpdStatusBit());
+  txSchedule.begin(nowTicks(), secondsToTicksRounded(START_DELAY_S));
 }
 
 void loop() {
-  uint8_t spd = readSpdStatusBit();
+  const uint8_t savedSreg = SREG;
+  cli();
+  const bool contactWake = spdWakeRequested;
+  const bool capturedFail = spdFailRequested;
+  spdWakeRequested = false;
+  spdFailRequested = false;
+  SREG = savedSreg;
 
-  int8_t tempMeasured = 0;
-  uint16_t rawTemp = 0;
-  int16_t adcErr = 0;
-  uint8_t tempStatus = readTempC_int8(tempMeasured, rawTemp, adcErr);
-  int8_t tempToSend = chooseTempToTransmit(tempStatus, tempMeasured);
-
-  // Preserved LED meaning from the old sketch:
-  // LED ON when SPD_STATUS == 0 (open / FAIL)
-  if (spd == 0) ledOn(LED_SPD);
-  else          ledOff(LED_SPD);
-
-  const uint32_t now = millis();
-  const bool failTransition = (lastSpdStatus == 1) && (spd == 0);
-
-  if (failTransition) {
-    sendBeaconEvent(spd, tempToSend, true);
-    nextTxMs = now + pickNextIntervalMs();
-    lastSpdStatus = spd;
-    return;
-  }
-
-  if ((int32_t)(now - nextTxMs) >= 0) {
-    sendBeaconEvent(spd, tempToSend, false);
-    nextTxMs = now + pickNextIntervalMs();
-  }
-
+  const uint8_t spd = readSpdStatusBit();
+  const bool statusChanged = spd != lastSpdStatus;
+  if (lastSpdStatus == 1 && (spd == 0 || capturedFail)) pendingFailEvent = true;
   lastSpdStatus = spd;
+  if (contactWake || statusChanged) signalStatus(spd);
+
+  uint16_t now = nowTicks();
+  txSchedule.observe(now);
+  finishStatusPulse(now);
+
+  if (!radioInitialized && AcDcSleep::reached(now, nextRadioRetryTick)) {
+    (void)loraInit();
+    radioSleepRetain();
+#if WSPD_LED_MODE == 0
+    signalStatus(spd);
+#endif
+    if (!radioInitialized) {
+#if WSPD_LED_MODE != 2
+      ledOn(LED_TX);
+      delay(50);
+      ledOff(LED_TX);
+#endif
+    }
+  }
+
+  if (radioInitialized) {
+    now = nowTicks();
+    if (pendingFailEvent) {
+      pendingFailEvent = false;
+      sendBeaconEvent(0, true);
+    } else if (txSchedule.retryDue(now)) {
+      // The packet was cached before the first FAIL transmission. Repeats use
+      // exactly its original nonce, temperature, status and authentication tag.
+      transmitPacket(failRepeatPacket, sizeof(failRepeatPacket));
+      txSchedule.retrySent(nowTicks(), secondsToTicksRounded(SPDFAIL_RETX_DELAY));
+    } else if (txSchedule.regularDue(now)) {
+      sendBeaconEvent(spd, false);
+    }
+  }
+
+  finishStatusPulse(nowTicks());
+#if WSPD_LED_MODE == 0
+  signalStatus(readSpdStatusBit());
+#endif
+  sleepUntilWork();
 }

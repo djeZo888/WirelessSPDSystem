@@ -1,5 +1,5 @@
 {
-  "validated_utc": "2026-10-12T21:28:20.046426+00:00",
+  "validated_utc": "2026-10-12T22:00:29.380333+00:00",
   "versions": {
     "Arduino_CLI": "1.5.1",
     "DxCore": "1.6.2",
@@ -10,22 +10,23 @@
   "builds": [
     {
       "sketch": "acdc_avr128da32",
-      "source_sha256": "4c4aeb6c2e2f1a8af473c90aa8adb35799d81e90370f0f979b629bcae0460bfd",
+      "source_sha256": "00bb95362628e876170ef1e9b3bd66f95973fcfa805b6692352cf22eb27383be",
       "fqbn": "DxCore:megaavr:avrda:chip=avr128da32,clock=4internal,millis=tcb2,bodvoltage=1v9,bodmode=enabled,WDTtimeout=disabled,WDTwindow=disabled,eesave=enable,resetpin=reset,startuptime=8,appspm=no,attach=allenabled,printf=default,wiremode=mors,flmap=lockdefault",
       "example_config_sf": 10,
       "validation_config": "Synthetic non-production 32-bit secret; not flashed or included in this source tree.",
       "result": "passed",
       "memory_summary": [
-        "Sketch uses 40742 bytes (31%) of program storage space. Maximum is 131072 bytes.",
-        "Global variables use 1509 bytes (9%) of dynamic memory, leaving 14875 bytes for local variables. Maximum is 16384 bytes."
+        "Sketch uses 42474 bytes (32%) of program storage space. Maximum is 131072 bytes.",
+        "Global variables use 1541 bytes (9%) of dynamic memory, leaving 14843 bytes for local variables. Maximum is 16384 bytes."
       ],
       "zero_secret_guard_passed": true,
       "source_files_sha256": {
-        "acdc_avr128da32.ino": "4c4aeb6c2e2f1a8af473c90aa8adb35799d81e90370f0f979b629bcae0460bfd",
+        "acdc_avr128da32.ino": "00bb95362628e876170ef1e9b3bd66f95973fcfa805b6692352cf22eb27383be",
         "build-options.json": "35cd7e6e4e3d9bf8e5cc477f5e38bc79dc1c85a9da34096314ca16da91a2560c",
-        "config.example.h": "1973962e007cdaa72aa8d33246819aa91682c5ed5d0665af020188a8c04a9538",
+        "config.example.h": "5f8b8945ee3f60141aca4daf710290e43405449cf76404a845f5810cb2695599",
         "nonce_eeprom.h": "293dd1e9518bd9a238ec3335d5958ff0f5383cc7b03c98e817463b1b3a6ce25a",
-        "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753"
+        "persistent_nonce.h": "ec6133a33890964212d504b47021bc06d526f465cb1d088fef23aa6495891753",
+        "sleep_schedule.h": "64a5556f862e19bd94dac25cf7f85bb2c896c53be49f0d50c180467eae6a5c94"
       },
       "firmware_version": 1,
       "validation_method": "tools/firmware.py validate with pinned isolated dependencies; tests/check_radio_configuration.py executes actual config guards",
@@ -33,7 +34,9 @@
       "missing_config_guard_present": true,
       "radio_configuration_guards_passed": true,
       "preproduction_flag": 0,
-      "preproduction_guards_passed": true
+      "preproduction_guards_passed": true,
+      "sleep_checks_passed": true,
+      "led_mode": 1
     },
     {
       "sketch": "battery_avr128db32",
@@ -64,6 +67,6 @@
       "preproduction_guards_passed": true
     }
   ],
-  "hardware_flash_performed": true,
-  "hardware_validation": "One AC-DC preproduction board: full flash readback, BOD/EESAVE/reset/startup fuse readback and a committed advancing nonce verified. User confirmed 20\u201340 second TX LED timing and SPD OK/FAIL LED operation. Receiver acceptance, physical power-cut, battery board and endurance checks remain pending."
+  "hardware_flash_performed": false,
+  "hardware_validation": "This sleep revision has not been flashed. An earlier AC-DC preproduction build passed full flash/fuse/nonce readback; the user confirmed its TX timing and SPD LEDs. Sleep current, wake timing, receiver acceptance and physical power cuts remain pending."
 }

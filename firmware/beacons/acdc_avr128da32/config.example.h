@@ -45,5 +45,11 @@
 // Existing config files without this setting also use production timing.
 #define WSPD_PREPRODUCTION 0
 
+// Integer LED mode: 0 = steady green/red status (higher idle current),
+// 1 = brief green/red status pulses and a short yellow TX pulse (default),
+// 2 = normal LEDs off. Storage faults always show the all-LED error pattern.
+// Range 0..2, inclusive. These indicators do not change packet contents.
+#define WSPD_LED_MODE 1
+
 // Bandwidth, coding rate, sync word, preamble and radio CRC are fixed in the
 // sketch. Hardware type and firmware version are also fixed by this build.
