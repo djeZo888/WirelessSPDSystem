@@ -87,6 +87,7 @@ struct OtaShim {
 struct MqttShim {
   bool enabled() const { return false; }
   bool connected() const { return false; }
+  void notifyMuteStateChanged() {}
 } mqttBridge;
 constexpr uint16_t BLACK = 0;
 constexpr size_t CONTENT_LENGTH_UNKNOWN = size_t(-1);
@@ -108,10 +109,12 @@ struct ServerShim {
   bool started = false, valueProvided = false;
   String value; std::map<String, String> query;
   unsigned sends = 0, noStoreHeaders = 0;
-  unsigned headerCollections = 0;
+  unsigned headerCollections = 0, attachments = 0;
+  String disposition;
   int status = 0;
   String contentType, body;
   void sendHeader(const char *name, const char *value) {
+    if (String(name) == "Content-Disposition") { attachments++; disposition=value; return; }
     assert(String(name) == "Cache-Control" && String(value) == "no-store"); noStoreHeaders++;
   }
   void send(int code, const char *type, const String &data) {
@@ -139,6 +142,7 @@ struct ServerShim {
   }
 } server;
 void requestScreenRedraw() { screenDirty = true; }
+void setRelay(bool) {}
 struct SerialShim { void printf(const char *, ...) {} } Serial;
 void bootLogf(uint16_t, const char *, ...) {}
 '''
@@ -194,6 +198,11 @@ int main() {
       assert(displayPages.advance(static_cast<uint32_t>((page + 1) * 5000)));
   }
   assert(displayPages.pageIndex() == 0);
+  server.dispatch("/ha-guide", HTTP_GET); assert(server.status==200 && server.body==HA_GUIDE_HTML);
+  assert(server.contentType=="text/html; charset=utf-8");
+  server.query["download"]="1"; handleHaGuide(); assert(server.disposition.find("home-assistant.html")!=String::npos);
+  server.dispatch("/ha-rest.yaml", HTTP_GET); assert(server.status==200 && server.body==HA_REST_YAML && server.contentType=="text/yaml; charset=utf-8");
+  assert(server.disposition.find("rest.yaml")!=String::npos && server.attachments==2);
   // Pretty response is plaintext and preserves the complete existing JSON data.
   server.query.clear(); server.query["pretty"] = "1"; handleApiGet();
   assert(server.contentType == "text/plain; charset=utf-8" && server.body.find('\n') != String::npos);
@@ -219,8 +228,8 @@ int main() {
 def verify_response(payload, wireless, local):
     expected_ids = ([0] if local else []) + list(range(1, wireless + 1))
     rows = payload["spds"]
-    assert payload["gateway"]["server_version"] == "v0.2.2"
-    assert payload["gateway"]["firmware_id"] == "v0.2.2-tconnpro"
+    assert payload["gateway"]["server_version"] == "v0.2.3"
+    assert payload["gateway"]["firmware_id"] == "v0.2.3-tconnpro"
     assert payload["gateway"]["gateway_id"] == "wspd-test"
     assert payload["gateway"]["mqtt"] == {"enabled": False, "connected": False}
     assert payload["gateway"]["ota"] == {
@@ -271,12 +280,12 @@ def main():
     states = source[source.index("struct PacketLossWindow {"):source.index("volatile bool loraPacketFlag")]
     html = (SERVER / "web_ui.h").read_text()
     assert "reset_nonces" not in html and "X-API-Key-Reset" not in html
-    body = SHIMS + states + '\n#include "web_ui.h"\n'
+    body = SHIMS + states + '\n#include "web_ui.h"\n#include "ha_guide.h"\n'
     for name in ["ageSecondsFor", "isStale", "isBatteryLow", "isFresh", "isFreshFail",
                  "isFreshBatteryLow", "effectiveStatusText", "effectiveLocalStatusText",
                  "isLocalFreshFail", "currentAlarmKind", "alarmKindText", "jsonEscape",
                  "appendLocalSpdJson", "appendWirelessSpdJson", "buildApiJson", "sendJson",
-                 "handleIndex", "handleApiGet", "handleMute", "logDecimal", "handleLogs", "handleHealthz", "setupWebServer"]:
+                 "handleIndex", "handleHaGuide", "handleHaRest", "handleApiGet", "setAlarmMuted", "handleMute", "logDecimal", "handleLogs", "handleHealthz", "setupWebServer"]:
         body += function(source, name) + "\n"
     body += CHECKS
     variants = [(count, local) for count in (1, 8, 9, 17, 24, 127) for local in (0, 1)]

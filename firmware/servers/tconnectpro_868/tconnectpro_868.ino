@@ -38,6 +38,7 @@
 #include "board_pins.h"
 #include "version.h"
 #include "web_ui.h"
+#include "ha_guide.h"
 #include "ota_web.h"
 #include "mqtt_bridge.h"
 #include <math.h>
@@ -231,7 +232,8 @@ static void serviceSessionClock() {
     }
   }
 }
-WspdMqttBridge mqttBridge(MQTT_HOST, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD, MQTT_BASE_TOPIC, MQTT_PUBLISH_SECONDS);
+static void mqttAlarmMute(bool muted);
+WspdMqttBridge mqttBridge(MQTT_HOST, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD, MQTT_BASE_TOPIC, MQTT_PUBLISH_SECONDS, mqttAlarmMute);
 char gatewayId[24] = {0};
 
 // =============================================================================
@@ -1018,7 +1020,20 @@ static String lossText(const SpdState &s) {
   return String(s.loss.lossPercent(), 0) + "%";
 }
 
+static bool hasBatteryBeacon() {
+  for (size_t i = 0; i < SPD_COUNT; ++i) {
+    if (spdStates[i].seen && spdStates[i].hardwareVersion == 2) return true;
+  }
+  return false;
+}
+
 static void drawStatusTable() {
+  // Keep column positions consistent across pages, including stale battery beacons.
+  const bool showBattery = hasBatteryBeacon();
+  const int16_t rssiX = showBattery ? 244 : 202;
+  const int16_t snrX = showBattery ? 310 : 280;
+  const int16_t lossX = 378;
+  const int16_t ageX = 434;
   const uint8_t alarmKind = currentAlarmKind();
   const bool failAlarm = (alarmKind == ALARM_SPD_FAIL);
   const bool redFlashFrame = failAlarm && screenFlashRed;
@@ -1053,15 +1068,17 @@ static void drawStatusTable() {
   gfx->print("ST");
   gfx->setCursor(78, y0);
   gfx->print("NAME");
-  gfx->setCursor(202, y0);
-  gfx->print("BAT");
-  gfx->setCursor(247, y0);
-  gfx->print("RSSI");
-  gfx->setCursor(292, y0);
-  gfx->print("SNR");
-  gfx->setCursor(338, y0);
+  if (showBattery) {
+    gfx->setCursor(202, y0);
+    gfx->print("BAT");
+  }
+  gfx->setCursor(rssiX, y0);
+  gfx->print("RSSI dBm");
+  gfx->setCursor(snrX, y0);
+  gfx->print("SNR dB");
+  gfx->setCursor(lossX, y0);
   gfx->print("LOSS");
-  gfx->setCursor(390, y0);
+  gfx->setCursor(ageX, y0);
   gfx->print("AGE");
   gfx->drawLine(0, y0 + 12, gfx->width(), y0 + 12, BLACK);
 
@@ -1152,27 +1169,29 @@ static void drawStatusTable() {
     snprintf(nameBuf, sizeof(nameBuf), "%-18.18s", cfg.friendlyName);
     gfx->print(nameBuf);
 
-    gfx->setCursor(202, y);
-    if (!s.seen) {
-      gfx->print("-");
-    } else if (!s.batteryValid) {
-      gfx->print("N/A");
-    } else {
-      if (isFreshBatteryLow(s)) gfx->setTextColor(RED);
-      gfx->printf("%.2f", s.batteryVoltageV);
-      gfx->setTextColor(BLACK);
+    if (showBattery) {
+      gfx->setCursor(202, y);
+      if (!s.seen) {
+        gfx->print("-");
+      } else if (!s.batteryValid) {
+        gfx->print("N/A");
+      } else {
+        if (isFreshBatteryLow(s)) gfx->setTextColor(RED);
+        gfx->printf("%.2f", s.batteryVoltageV);
+        gfx->setTextColor(BLACK);
+      }
     }
 
-    gfx->setCursor(247, y);
+    gfx->setCursor(rssiX, y);
     if (s.seen) gfx->printf("%.0f", s.rssiDbm); else gfx->print("-");
 
-    gfx->setCursor(292, y);
+    gfx->setCursor(snrX, y);
     if (s.seen) gfx->printf("%.1f", s.snrDb); else gfx->print("-");
 
-    gfx->setCursor(338, y);
+    gfx->setCursor(lossX, y);
     gfx->print(lossText(s));
 
-    gfx->setCursor(390, y);
+    gfx->setCursor(ageX, y);
     gfx->print(ageText(s));
   }
 
@@ -1352,6 +1371,16 @@ static bool pollTouchLandscape(bool &downOut, int16_t &xOut, int16_t &yOut) {
   return true;
 }
 
+static void setAlarmMuted(bool muted, const char *source) {
+  alarmMuted = muted;
+  sessionLogf("[Alarm] %s via %s", muted ? "Muted" : "Unmuted", source);
+  if (muted) setRelay(false);
+  requestScreenRedraw();
+  mqttBridge.notifyMuteStateChanged();
+}
+
+static void mqttAlarmMute(bool muted) { setAlarmMuted(muted, "Home Assistant MQTT"); }
+
 static void handleTouch() {
   bool down = false;
   int16_t x = 0, y = 0;
@@ -1381,9 +1410,7 @@ static void handleTouch() {
   lastTouchActionMs = now;
 
   if (pointInRect(x, y, MUTE_BTN_X, MUTE_BTN_Y, MUTE_BTN_W, MUTE_BTN_H)) {
-    alarmMuted = !alarmMuted;
-    sessionLogf("[Alarm] %s\n", alarmMuted ? "Muted" : "Unmuted");
-    requestScreenRedraw();
+    setAlarmMuted(!alarmMuted, "touch");
   }
 }
 
@@ -1661,6 +1688,19 @@ static void handleIndex() {
   server.send_P(200, "text/html; charset=utf-8", INDEX_HTML);
 }
 
+static void handleHaGuide() {
+  server.sendHeader("Cache-Control", "no-store");
+  if (server.hasArg("download") && server.arg("download") == "1")
+    server.sendHeader("Content-Disposition", "attachment; filename=\"wireless-spd-home-assistant.html\"");
+  server.send_P(200, "text/html; charset=utf-8", HA_GUIDE_HTML);
+}
+
+static void handleHaRest() {
+  server.sendHeader("Cache-Control", "no-store");
+  server.sendHeader("Content-Disposition", "attachment; filename=\"wireless-spd-rest.yaml\"");
+  server.send_P(200, "text/yaml; charset=utf-8", HA_REST_YAML);
+}
+
 static void handleApiGet() {
   const String body = buildApiJson();
   if (!server.hasArg("pretty") || server.arg("pretty") != "1") { sendJson(200, body); return; }
@@ -1677,13 +1717,8 @@ static void handleApiGet() {
 }
 
 static void handleMute() {
-  if (server.hasArg("value")) {
-    alarmMuted = server.arg("value") != "0";
-  } else {
-    alarmMuted = !alarmMuted;
-  }
-  sessionLogf("[Alarm] %s via web", alarmMuted ? "Muted" : "Unmuted");
-  requestScreenRedraw();
+  const bool muted = server.hasArg("value") ? server.arg("value") != "0" : !alarmMuted;
+  setAlarmMuted(muted, "web");
   sendJson(200, String("{\"status\":\"ok\",\"alarm_muted\":") + (alarmMuted ? "true" : "false") + "}");
 }
 
@@ -1738,6 +1773,8 @@ static bool setupWebServer() {
   firmwareOta.setup();
   server.on("/", HTTP_GET, handleIndex);
   server.on("/index.html", HTTP_GET, handleIndex);
+  server.on("/ha-guide", HTTP_GET, handleHaGuide);
+  server.on("/ha-rest.yaml", HTTP_GET, handleHaRest);
   server.on("/api/v1/get", HTTP_GET, handleApiGet);
   server.on("/api/v1/logs", HTTP_GET, handleLogs);
   server.on("/api/v1/mute", HTTP_POST, handleMute);
@@ -1864,11 +1901,11 @@ void loop() {
   server.handleClient();
   firmwareOta.loop(millis());
   if (firmwareOta.busy()) { setRelay(false); return; }
+  mqttBridge.loop(millis(), WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED);
   handleLoRa();
   handleLocalSpd();
   handleTouch();
   handleAlarmRelay();
-  mqttBridge.loop(millis(), WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED);
 
   const uint32_t now = millis();
   if (displayPages.advance(now)) {

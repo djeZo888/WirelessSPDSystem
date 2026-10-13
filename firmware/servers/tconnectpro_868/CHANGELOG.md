@@ -3,6 +3,23 @@
 Receiver versions are independent of beacon HW/FW packet fields and repository
 releases. The LCD displays the receiver version with the `-tconnpro` suffix.
 
+## v0.2.3 — 2026-10-14
+
+- Hides BAT on the LCD and web table when no authenticated hardware-type-2
+  beacon has been identified; expands RSSI/SNR space with explicit units.
+  Battery detection covers all pages and filters, including stale devices.
+- Orders tabs **Overview → Firmware → Logs → HA Integration**.
+- Embeds a complete, locally served Home Assistant setup guide, downloadable
+  offline HTML and REST YAML: broker/account setup, receiver build and updates,
+  discovery, notifications, acceptance checks and troubleshooting.
+- Adds a Home Assistant **Alarm muted** switch through MQTT Discovery and the
+  REST example. ON mutes the relay; OFF restores its alarm pattern. Web, touch
+  and HA controls share state; monitoring and visual warnings continue.
+- Accepts only explicit ON/OFF MQTT commands on the receiver loop and clears
+  obsolete retained commands before subscribing after reconnect.
+- Removes the temporary paging-test registrations from the deployed private
+  configuration. Retains receiver release **v0.2.3-tconnpro** and beacon firmware **1**.
+
 ## v0.2.2 — 2026-10-13
 
 - Adds a fourth **Logs** tab with dated startup, packet, rejection, alarm,

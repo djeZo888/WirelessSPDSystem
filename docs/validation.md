@@ -6,8 +6,8 @@ Compile-only checks use synthetic credentials:
 | --- | ---: | ---: | --- |
 | AC-DC AVR128DA32 · sleep, LED mode 1 | 42,636 / 131,072 bytes | 1,543 / 16,384 bytes | Passed |
 | Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
-| T Connect Pro v0.2.2 · core 3.3.12, 127 wireless + local | 1,135,094 / 3,145,728 bytes | 199,924 / 327,680 bytes | Passed |
-| T Connect Pro v0.2.2 · core 2.0.14 compatibility | 965,641 / 3,145,728 bytes | 196,520 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.3 · core 3.3.12, 127 wireless + local | 1,185,518 / 3,145,728 bytes | 199,948 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.3 · core 2.0.14 compatibility | 1,016,065 / 3,145,728 bytes | 196,544 / 327,680 bytes | Passed |
 
 The receiver also allocates its session log dynamically in PSRAM: **2 MiB /
 4096 entries** by default, in addition to the LCD framebuffer. Global RAM in the
@@ -30,14 +30,16 @@ Server validation builds configure all 127 wireless IDs plus local ID 0, so the
 build check exercises multiple pages, the maximum state array and enabled OTA/MQTT paths with synthetic credentials.
 Run `python3 tests/check_server_display.py` for the paging regression checks:
 the actual LCD renderer, loop, alarm scan and mute touch handler run with host I/O
-shims across 17 local/wireless configurations. Checks include complete row coverage,
+shims across 19 local/wireless configurations. Checks include complete row coverage,
 partial pages, off-page alarms, 2/5/10-second timing, clock rollover, touch
-debounce and the displayed version. Invalid page intervals are rejected at
+debounce, the displayed version and adaptive BAT/RSSI/SNR layouts across all
+pages, including unseen, stale and off-page battery reports. Invalid page intervals are rejected at
 compile time. Run `python3 tests/check_server_api.py` to check the actual JSON
 builder, HTTP routing and mute controls across 13 configurations, including all
 128 rows. `python3 tests/check_server_dashboard.py` executes the web script in
 Node.js, checking full row coverage, filters, escaping, connection/mute failures,
-OTA progress and SHA-256 against standard and 3 MB test vectors. Every LCD page
+OTA progress, global hardware-type-2 battery visibility, exact tab order, guide
+embedding and SHA-256 against standard and 3 MB test vectors. Every LCD page
 returns the same complete API list; the web displays every row and the firmware
 version, and its mute button works. These checks also run in CI;
 AddressSanitizer/UBSan check host memory access. Host shims do not verify physical LCD/touch, Wi-Fi transport or
@@ -62,8 +64,19 @@ exercise the production validator's OTA token and MQTT configuration limits. Hos
 verify physical flash/bootloader behavior or real HTTP multipart parsing.
 `python3 tests/check_server_mqtt.py` checks discovery, retained full-list telemetry,
 availability, broker failure/backoff, Home Assistant birth and OTA pause across
-seven configurations, including 128 rows and maximum strings. Host checks do not
-replace a deployed broker/Home Assistant test.
+seven configurations, including 128 rows and maximum strings. They also verify
+strict ON/OFF mute commands, main-loop handoff, synchronized state, clearing
+retained commands before subscription, subscription failures and prompt mute
+acknowledgement during a long row publication cycle. Host checks do not replace
+a deployed broker/Home Assistant test.
+
+`python3 tests/check_home_assistant_guide.py` checks generated offline HTML and
+embedded resources against the documentation and validates YAML/Jinja examples,
+notification conditions, REST availability and mute actions. It requires pinned
+PyYAML 6.0.3 and Jinja2 3.1.6; CI installs them in an isolated environment. The
+guide has no external assets, scripts or fonts. Installing missing broker/HA/build
+dependencies is explicitly an online preparation step; later reading and building
+with prepared dependencies can be done offline.
 
 The v0.1 receiver was flashed with Arduino IDE 2.3.10 / ESP32 core 3.3.12 /
 Arduino_GFX 1.6.9 at 460800 baud on 13 October 2026. Display/touch/AP/LoRa boot
@@ -101,8 +114,30 @@ no unplanned restart. Private images/configuration and bench evidence are not
 published. This release was verified by network activation/boot, without another
 USB image readback.
 
-MQTT/Home Assistant deployment, battery hardware and maximum-list performance
-remain untested on this bench.
+The operator confirmed the physical LCD paging test with 19 registrations
+(8 / 8 / 3 rows). The normal private configuration was restored to the original
+three registrations for **v0.2.3**; authenticated reports from hardware-type-1
+beacons 1 and 2 hide BAT globally and leave additional space for RSSI/SNR.
+
+On 13 October 2026, a private v0.2.3 build was installed by authenticated OTA
+for an actual MQTT test with a temporary, password-protected Mosquitto broker.
+Discovery included the **Alarm muted** switch. ON/OFF commands changed the
+receiver's API state and produced authoritative retained MQTT acknowledgements
+in about 1–1.6 seconds. An invalid command was ignored, web controls updated the
+same MQTT state, and session logs recorded the MQTT actions. An old retained ON
+command, seeded before connection, was cleared without muting the receiver.
+The final normal build (1,179,954 bytes flash / 62,908 bytes global RAM) was then
+installed by OTA on 14 October with MQTT disabled until the user's site broker is configured.
+The receiver rebooted into v0.2.3, and both real beacons resumed authenticated
+reports with increasing nonces. The complete guide and REST YAML were served
+locally and matched the repository resources. Desktop/narrow browser checks
+covered the final dashboard, adaptive BAT table, tab order and guide navigation.
+Private configurations, binaries and broker credentials are excluded.
+
+A real Home Assistant installation and site broker configuration remain untested;
+the broker/device protocol and host examples are verified separately. Battery
+hardware, physical alarm wiring and maximum-list RF/network performance remain
+hardware acceptance checks.
 
 Persistent-nonce firmware 1 is tested with
 `python3 tests/check_persistent_nonce.py`: 5,140 checks including 126 simulated

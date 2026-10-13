@@ -6,7 +6,7 @@ PSRAM, 868 MHz SX1262, ST7796 LCD and CST226SE touch. It accepts both
 [battery](../../beacons/battery_avr128db32) beacon firmware using the
 [20-byte authenticated protocol](../../../docs/protocol.md). The [API reference](../../../docs/api.md) documents the full-list response and controls.
 
-Receiver firmware is **v0.2.2**, shown on the LCD as **v0.2.2-tconnpro**.
+Receiver firmware is **v0.2.3**, shown on the LCD as **v0.2.3-tconnpro**.
 See the [receiver changelog](CHANGELOG.md). This version is separate from beacon
 HW/FW fields in LoRa packets and the repository's `v0.1.0` release.
 
@@ -19,12 +19,14 @@ dashboard cover all configured SPDs, including those on another LCD page.
 The first page interval starts after boot completes.
 
 The web dashboard adapts to phones and desktops, with status summaries, search,
-filters and expandable diagnostics. RSSI and SNR appear together. A persistent
+filters and expandable diagnostics. RSSI and SNR appear together; BAT is hidden
+until a hardware-type-2 beacon is identified anywhere in the configured list. A persistent
 MUTE/UNMUTE button controls alarm output from every tab; refresh timestamps
 include date and 24-hour time. **Logs** shows startup, packet and operational
 events from the current boot; see [session logging](../../../docs/session-logs.md).
 The footer opens the full API as readable JSON in a new tab. See [Home Assistant setup](../../../docs/home-assistant.md)
-for MQTT discovery or a REST example, and [network firmware updates](../../../docs/network-updates.md)
+for the full locally hosted **HA Integration** guide, MQTT discovery, REST
+examples and a synchronized Home Assistant alarm mute switch, and [network firmware updates](../../../docs/network-updates.md)
 for authenticated browser uploads after the first USB installation.
 
 ## Build and flash

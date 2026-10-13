@@ -1,0 +1,33 @@
+# Paste this single automation into a NEW automation's Edit in YAML editor.
+# First rename/select your real fault entities; change both lists consistently.
+alias: Wireless SPD - fault notification
+mode: restart
+variables:
+  spd_fault_entities:
+    - binary_sensor.spd_1_fault
+    - binary_sensor.spd_2_fault
+    - binary_sensor.spd_3_fault
+triggers:
+  - trigger: state
+    entity_id:
+      - binary_sensor.spd_1_fault
+      - binary_sensor.spd_2_fault
+      - binary_sensor.spd_3_fault
+    to: "on"
+    for: "00:00:05"
+  - trigger: homeassistant
+    event: start
+conditions:
+  - condition: template
+    value_template: >-
+      {{ expand(spd_fault_entities) | selectattr('state', 'eq', 'on') | list | count > 0 }}
+actions:
+  - action: persistent_notification.create
+    data:
+      notification_id: wireless_spd_fault
+      title: "SPD fault"
+      message: >-
+        Fault reported by: {{ expand(spd_fault_entities) |
+        selectattr('state', 'eq', 'on') | map(attribute='name') | join(', ') }}.
+        Check the receiver and the affected SPD. Muting silences the relay only;
+        the fault remains active until the SPD reports healthy.

@@ -1,0 +1,45 @@
+# Paste into a SECOND new automation's Edit in YAML editor.
+# Change both entity lists to match every SPD fault entity you intend to monitor.
+alias: Wireless SPD - missing monitoring notification
+mode: restart
+variables:
+  spd_fault_entities:
+    - binary_sensor.spd_1_fault
+    - binary_sensor.spd_2_fault
+    - binary_sensor.spd_3_fault
+triggers:
+  - trigger: state
+    entity_id:
+      - binary_sensor.spd_1_fault
+      - binary_sensor.spd_2_fault
+      - binary_sensor.spd_3_fault
+    to: "unavailable"
+    for: "00:01:00"
+  - trigger: state
+    entity_id:
+      - binary_sensor.spd_1_fault
+      - binary_sensor.spd_2_fault
+      - binary_sensor.spd_3_fault
+    to: "unknown"
+    for: "00:01:00"
+  - trigger: homeassistant
+    event: start
+conditions: []
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ trigger.platform == 'homeassistant' }}"
+    then:
+      - delay: "00:01:00"
+  - condition: template
+    value_template: >-
+      {{ expand(spd_fault_entities) | selectattr('state', 'in', ['unknown', 'unavailable']) |
+         list | count > 0 or expand(spd_fault_entities) | list | count < spd_fault_entities | count }}
+  - action: persistent_notification.create
+    data:
+      notification_id: wireless_spd_monitoring_missing
+      title: "SPD monitoring unavailable"
+      message: >-
+        At least one configured fault entity is unknown, unavailable or missing.
+        Check receiver power, Wi-Fi/MQTT, beacon reporting and the selected entity IDs.
+        Missing monitoring is not a healthy-SPD confirmation.

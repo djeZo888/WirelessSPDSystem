@@ -75,7 +75,9 @@ class PubSubClient {
   inline static PubSubClient *last = nullptr;
   std::vector<Publication> sent;
   std::function<void(char *,uint8_t *,unsigned int)> callback;
-  bool online = false, brokerAvailable = true, failPublish = false;
+  bool online = false, brokerAvailable = true, failPublish = false, failSubscribe = false;
+  std::vector<std::string> subscriptions;
+  bool retainedCommand = true;
   unsigned attempts = 0, loopCalls = 0;
   std::string clientId, willTopic, subscription;
   WiFiClient &transport;
@@ -90,11 +92,21 @@ class PubSubClient {
     ++attempts; clientId=id; willTopic=topic; assert(qos==0 && retain && std::string(will)=="offline");
     transport.connect("broker.local",1883); online=brokerAvailable; return online;
   }
-  bool subscribe(const char *topic) { subscription=topic; return true; }
+  bool subscribe(const char *topic) {
+    if(failSubscribe) return false;
+    subscription=topic; subscriptions.push_back(topic);
+    if(retainedCommand && std::string(topic).find("/command/alarm_muted")!=std::string::npos) command("ON");
+    return true;
+  }
+  void command(const std::string &payload, const std::string &suffix="/command/alarm_muted") {
+    std::string topic=willTopic.substr(0,willTopic.size()-13)+suffix;
+    callback(topic.data(),reinterpret_cast<uint8_t *>(const_cast<char *>(payload.data())),payload.size());
+  }
   bool loop() { ++loopCalls; return connected(); }
   void disconnect() { online=false; transport.stop(); }
   bool publish(const char *topic,const char *payload,bool retain) {
     if (failPublish) return false;
+    if(std::string(topic).find("/command/alarm_muted")!=std::string::npos && !*payload && retain) retainedCommand=false;
     sent.push_back({topic,payload,retain}); return true;
   }
   void birth() {
@@ -113,6 +125,9 @@ unsigned callbacks=0;
 size_t count=0;
 bool hasLocal=false;
 bool staleRows=false;
+bool actualMuted=true;
+unsigned muteCalls=0;
+void mute(bool value) { actualMuted=value; ++muteCalls; }
 std::string name="Remote \"cabinet\" <&>\n\t";
 void row(size_t index,WspdMqttSpdSnapshot &s) {
   ++callbacks;
@@ -129,11 +144,11 @@ void row(size_t index,WspdMqttSpdSnapshot &s) {
 }
 void gateway(WspdMqttGatewaySnapshot &s) {
   s.configured=count; s.failed=2; s.stale=1; s.unknown=1;
-  s.uptimeSeconds=1000; s.alarmMuted=true;
+  s.uptimeSeconds=1000; s.alarmMuted=actualMuted;
 }
 char baseTopic[65]="wirelessspd";
 char receiverId[33]="aabbccddeeff";
-static WspdMqttBridge bridge("broker.local",1883,"receiver","private",baseTopic,5);
+static WspdMqttBridge bridge("broker.local",1883,"receiver","private",baseTopic,5,mute);
 static PubSubClient *bridgeBroker=PubSubClient::last;
 void steps(unsigned calls) {
   for (unsigned i=0;i<calls;++i) {
@@ -171,15 +186,41 @@ int main(int argc,char **argv) {
   assert(mqtt.attempts==2 && bridge.connected());
   assert(mqtt.clientId==std::string("wspd-")+receiverId);
   assert(mqtt.willTopic==std::string(baseTopic)+"/"+receiverId+"/availability");
-  assert(mqtt.subscription=="homeassistant/status");
+  assert(mqtt.subscriptions.size()==2 && mqtt.subscriptions[0]=="homeassistant/status");
+  assert(mqtt.subscription==std::string(baseTopic)+"/"+receiverId+"/command/alarm_muted");
+  assert(!mqtt.retainedCommand && muteCalls==0);
   steps(static_cast<unsigned>(2*count+6));
-  assert(mqtt.sent.front().payload=="offline");
+  assert(mqtt.sent.front().payload.empty() && mqtt.sent[1].payload=="offline");
   assert(std::any_of(mqtt.sent.begin(),mqtt.sent.end(),[](const Publication &p) {return p.payload=="online";}));
   std::cout << "INITIAL\n";
   for (const auto &p:mqtt.sent) {
     assert(p.retain && p.payload.size()+p.topic.size()+8<6144);
     std::cout << p.topic << '\t' << p.payload << '\n';
   }
+  // Callback cannot touch the main-loop alarm state; only strict explicit
+  // ON/OFF commands are accepted. No toggles, prefixes or NUL assumptions.
+  for(const auto &invalid: {std::string(""),std::string("on"),std::string("ON "),std::string("true"),std::string("OFF\0junk",8),std::string(200,'O')}) mqtt.command(invalid);
+  mqtt.command("OFF","/command/other"); bridge.loop(clockMs,true); assert(muteCalls==0 && actualMuted);
+  mqtt.command("OFF"); assert(muteCalls==0 && actualMuted);
+  bridge.loop(clockMs,true); assert(muteCalls==1 && !actualMuted);
+  bridge.notifyMuteStateChanged(); steps(static_cast<unsigned>(count+3));
+  assert(std::any_of(mqtt.sent.begin(),mqtt.sent.end(),[](const Publication &p) {return p.topic.find("/spd/")==std::string::npos && p.payload.find("\"alarm_muted\":\"OFF\"")!=std::string::npos;}));
+  mqtt.command("ON"); mqtt.command("OFF"); bridge.loop(clockMs,true); assert(muteCalls==2 && !actualMuted); // latest explicit state wins
+  mqtt.command("ON"); bridge.loop(clockMs,true); assert(muteCalls==3 && actualMuted);
+  mqtt.command("OFF"); bridge.setPaused(true); bridge.loop(clockMs,true); assert(muteCalls==3 && actualMuted);
+  bridge.setPaused(false);
+  mqtt.command("OFF"); bridge.loop(clockMs,false); assert(muteCalls==3 && actualMuted);
+  bridge.loop(clockMs,true);
+  actualMuted=false; bridge.notifyMuteStateChanged(); steps(static_cast<unsigned>(count+3)); // web/touch reflection
+  assert(std::any_of(mqtt.sent.begin(),mqtt.sent.end(),[](const Publication &p) {return p.payload.find("\"alarm_muted\":\"OFF\"")!=std::string::npos;}));
+  // A change during an active state cycle must acknowledge on the next task
+  // step, rather than waiting until the configured periodic publish deadline.
+  bridge.requestPublish(); steps(1);
+  actualMuted=true; bridge.notifyMuteStateChanged(); const auto ackBefore=mqtt.sent.size(); steps(1);
+  assert(mqtt.sent.size()==ackBefore+1 && mqtt.sent.back().topic==std::string(baseTopic)+"/"+receiverId+"/state");
+  assert(mqtt.sent.back().payload.find("\"alarm_muted\":\"ON\"")!=std::string::npos);
+  bridge.requestPublish(); // Full-list requests remain latched across this cycle.
+  steps(static_cast<unsigned>(2*count+6));
   // Home Assistant birth resends discovery and current state incrementally.
   mqtt.sent.clear(); mqtt.birth();
   steps(static_cast<unsigned>(2*count+6));
@@ -209,6 +250,15 @@ int main(int argc,char **argv) {
   const auto offlineAttempts=mqtt.attempts;
   clockMs+=60000; bridge.testNetworkStep(clockMs);
   assert(mqtt.attempts==offlineAttempts);
+  // Failed subscription writes cannot expose the receiver as available.
+  mqtt.failSubscribe=true; mqtt.retainedCommand=true; const auto subscribeBefore=mqtt.sent.size();
+  bridge.loop(clockMs,true); bridge.testNetworkStep(clockMs);
+  assert(!bridge.connected() && !mqtt.connected() && !mqtt.retainedCommand);
+  assert(mqtt.sent.size()==subscribeBefore+1 && mqtt.sent.back().payload.empty());
+  mqtt.failSubscribe=false; clockMs+=30000; steps(1); assert(bridge.connected());
+  const auto previousMuteCalls=muteCalls; steps(static_cast<unsigned>(2*count+6));
+  assert(muteCalls==previousMuteCalls); // Obsolete retained ON was cleared before subscribe.
+
 }
 '''
 
@@ -241,7 +291,7 @@ def main():
                     current = line
                     continue
                 topic, raw = line.split("\t", 1)
-                sections[current].append((topic, raw if raw in ("online", "offline") else json.loads(raw)))
+                sections[current].append((topic, raw if raw in ("online", "offline", "") else json.loads(raw)))
             initial = sections["INITIAL"]
             receiver_id = "b" * 32 if long_name else "aabbccddeeff"
             discoveries = [data for topic, data in initial if topic.endswith("/config")]
@@ -255,8 +305,15 @@ def main():
                 for entity in data["components"].values():
                     assert entity["unique_id"] not in unique_ids
                     unique_ids.add(entity["unique_id"])
-                    assert entity["platform"] in ("sensor", "binary_sensor")
-                    assert entity["availability_mode"] == "all" and entity["expire_after"] == 45
+                    assert entity["platform"] in ("sensor", "binary_sensor", "switch")
+                    assert entity["availability_mode"] == "all"
+                    if entity["platform"] == "switch":
+                        assert entity["retain"] is False and entity["optimistic"] is False
+                        assert entity["payload_on"] == "ON" and entity["payload_off"] == "OFF"
+                        assert entity["command_topic"].endswith("/command/alarm_muted")
+                        assert entity["value_template"] == "{{ value_json.alarm_muted }}"
+                        assert "expire_after" not in entity
+                    else: assert entity["expire_after"] == 45
                 if device_id != receiver_id:
                     problem = data["components"]["problem"]
                     assert "value_json.fresh" in problem["availability"][1]["value_template"]

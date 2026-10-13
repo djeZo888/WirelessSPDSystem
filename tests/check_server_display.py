@@ -26,6 +26,7 @@ SHIMS = r'''
 #include "display_pages.h"
 #include "version.h"
 #include "config_types.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdarg>
 #include <cstdio>
@@ -51,7 +52,7 @@ constexpr uint16_t DISPLAY_PAGE_SECONDS = PAGE_SECONDS;
 constexpr uint32_t PAGE_MS = uint32_t(DISPLAY_PAGE_SECONDS) * 1000UL;
 struct SpdState {
   bool seen = false, fresh = false, batteryLow = false, batteryValid = false;
-  uint8_t statusCode = 1;
+  uint8_t statusCode = 1, hardwareVersion = 1;
   float batteryVoltageV = 3.2f, rssiDbm = -70, snrDb = 9;
 };
 SpdConfig SPD_CONFIGS[SPD_COUNT ? SPD_COUNT : 1];
@@ -72,11 +73,11 @@ bool isFreshFail(const SpdState &s) { return isFresh(s) && s.statusCode == 0; }
 bool isFreshBatteryLow(const SpdState &s) { return isFresh(s) && s.batteryLow; }
 const char *effectiveLocalStatusText() { return localFail ? "FAIL" : "OK"; }
 const char *effectiveStatusText(const SpdState &s) {
-  return !isFresh(s) ? "UNKNOWN" : (s.statusCode ? "OK" : "FAIL");
+  return !s.seen ? "UNKNOWN" : (!s.fresh ? "STALE" : (s.statusCode ? "OK" : "FAIL"));
 }
 String ipString() { return "192.0.2.1"; }
-String lossText(const SpdState &) { return "0%"; }
-String ageText(const SpdState &) { return "<1m"; }
+String lossText(const SpdState &s) { return s.seen ? "100%" : "-"; }
+String ageText(const SpdState &s) { return s.seen ? "1193h" : "never"; }
 uint16_t colorLightRed() { return 4; }
 uint16_t colorLightGreen() { return 5; }
 uint16_t colorLightOrange() { return 6; }
@@ -107,6 +108,7 @@ void drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const char *label) {
 }
 void flushDisplay() { flushCount++; }
 void requestScreenRedraw() { screenDirty = true; }
+void setAlarmMuted(bool muted, const char *) { alarmMuted = muted; requestScreenRedraw(); }
 void digitalWrite(int, int) {}
 struct SerialShim { void printf(const char *, ...) {} } Serial;
 struct ServerShim { void handleClient() {} } server;
@@ -146,7 +148,7 @@ bool textContains(const char *needle) {
   return false;
 }
 void checkVersionLabel(int16_t x, int16_t y) {
-  assert(strcmp(SERVER_FIRMWARE_ID, "v0.2.2-tconnpro") == 0);
+  assert(strcmp(SERVER_FIRMWARE_ID, "v0.2.3-tconnpro") == 0);
   size_t labels = 0;
   for (const auto &item : graphics.printed) {
     if (item.text == SERVER_FIRMWARE_ID) {
@@ -171,6 +173,10 @@ void checkRenderer() {
     assert(buttonCount == 1 && flushCount == 1);
     assert(textContains("LOCAL") == (SPD_LOCAL_ENABLED && page == 0));
     assert(textContains("Page ") == (expectedPages > 1));
+    if (SPD_TOTAL_COUNT == 19) {
+      const char *footers[] = {"Page 1/3  SPDs 1-8/19", "Page 2/3  SPDs 9-16/19", "Page 3/3  SPDs 17-19/19"};
+      assert(textContains(footers[page]));
+    }
     checkVersionLabel(2, 211);
     allIds.insert(allIds.end(), ids.begin(), ids.end());
     if (expectedPages > 1) {
@@ -184,6 +190,85 @@ void checkRenderer() {
   if (SPD_LOCAL_ENABLED) assert(allIds[index++] == 0);
   for (size_t wireless = 1; wireless <= SPD_COUNT; wireless++)
     assert(allIds[index++] == wireless);
+}
+void checkTableGeometry(bool batteryExpected) {
+  bool batteryHeader = false, rssiHeader = false, snrHeader = false;
+  for (const auto &item : graphics.printed) {
+    if (item.y == 30 && item.text == "BAT") batteryHeader = true;
+    if (item.y == 30 && item.text == "RSSI dBm") rssiHeader = true;
+    if (item.y == 30 && item.text == "SNR dB") snrHeader = true;
+  }
+  assert(batteryHeader == batteryExpected && rssiHeader && snrHeader);
+  // The built-in size-1 GFX font occupies 6 by 8 pixels per ASCII character.
+  // Exercise real emitted text, including the longest name/status/age and
+  // telemetry values, so a header or value crossing its neighbour fails.
+  for (int16_t y : {int16_t(30), int16_t(45), int16_t(63), int16_t(81),
+                    int16_t(99), int16_t(117), int16_t(135), int16_t(153), int16_t(171)}) {
+    std::vector<Printed> line;
+    for (const auto &item : graphics.printed) if (item.y == y) line.push_back(item);
+    std::sort(line.begin(), line.end(), [](const Printed &a, const Printed &b) { return a.x < b.x; });
+    int16_t right = 0;
+    for (const auto &item : line) {
+      assert(item.x >= right && item.y + 8 <= 222);
+      right = item.x + static_cast<int16_t>(item.text.size() * 6);
+      assert(right <= 480);
+    }
+  }
+}
+void checkAllPageLayouts(bool batteryExpected) {
+  displayPages.restart(0);
+  for (size_t page = 0; page < displayPages.pageCount(); ++page) {
+    drawStatusTable();
+    checkTableGeometry(batteryExpected);
+    assert(renderedIds().size() == displayPages.rowCount());
+    if (displayPages.pageCount() > 1) assert(displayPages.advance((page + 1) * PAGE_MS));
+  }
+}
+void checkBatteryLayouts() {
+  localFail = false; screenFlashRed = false;
+  for (size_t i = 0; i < SPD_COUNT; ++i) {
+    SPD_CONFIGS[i].friendlyName = "Name uses 18 chars!";
+    spdStates[i] = SpdState();
+    spdStates[i].seen = spdStates[i].fresh = true;
+    spdStates[i].batteryValid = true; // Voltage alone must not create BAT.
+  }
+  assert(!hasBatteryBeacon());
+  checkAllPageLayouts(false); // All AC-DC; local-only also hides BAT.
+  if (SPD_COUNT == 0) {
+    spdStates[0].seen = true; spdStates[0].hardwareVersion = 2;
+    assert(!hasBatteryBeacon()); // Unused storage is not a configured beacon.
+    checkAllPageLayouts(false);
+    return;
+  }
+  for (size_t i = 0; i < SPD_COUNT; ++i) {
+    spdStates[i].seen = spdStates[i].fresh = false;
+    spdStates[i].hardwareVersion = 2;
+  }
+  assert(!hasBatteryBeacon());
+  checkAllPageLayouts(false); // Unknown hardware metadata cannot create BAT.
+  auto &battery = spdStates[SPD_COUNT - 1];
+  battery.seen = true; battery.batteryValid = false;
+  assert(hasBatteryBeacon());
+  checkAllPageLayouts(true); // A stale off-page battery beacon retains BAT.
+  for (size_t i = 0; i < SPD_COUNT; ++i) {
+    spdStates[i].seen = spdStates[i].fresh = true;
+    spdStates[i].hardwareVersion = 1;
+  }
+  battery.hardwareVersion = 2;
+  for (bool showBattery : {false, true}) {
+    battery.hardwareVersion = showBattery ? 2 : 1;
+    for (float rssi : {-140.0f, -99.7f, -1.0f, 0.0f, 20.0f}) {
+      for (float snr : {-20.0f, -19.75f, -0.1f, 0.0f, 10.0f, 12.5f}) {
+        for (size_t i = 0; i < SPD_COUNT; ++i) {
+          spdStates[i].rssiDbm = rssi; spdStates[i].snrDb = snr;
+          spdStates[i].batteryValid = (i % 2 == 0);
+          spdStates[i].batteryVoltageV = 3.60f;
+        }
+        assert(hasBatteryBeacon() == showBattery);
+        checkAllPageLayouts(showBattery);
+      }
+    }
+  }
 }
 void checkTiming() {
   for (uint32_t interval : {2000UL, 5000UL, 10000UL}) {
@@ -274,7 +359,7 @@ int main() {
     SPD_CONFIGS[i] = {static_cast<uint8_t>(i + 1), "Wireless", 1};
     spdStates[i].seen = spdStates[i].fresh = true;
   }
-  checkRenderer(); checkTiming(); checkLoopAndAlarm(); checkMuteTouch();
+  checkRenderer(); checkTiming(); checkLoopAndAlarm(); checkMuteTouch(); checkBatteryLayouts();
 }
 '''
 
@@ -287,10 +372,10 @@ def main():
     # Reuse production capacity assertions instead of duplicating their limits.
     assertions = re.findall(r"static_assert\((?:SPD_|DISPLAY_PAGE_SECONDS)[^;]+;", source)
     body = SHIMS + "\n" + "\n".join(assertions) + "\n"
-    for name in ["currentAlarmKind", "pointInRect", "handleTouch", "drawBootHeader", "drawStatusTable", "loop"]:
+    for name in ["currentAlarmKind", "pointInRect", "handleTouch", "drawBootHeader", "hasBatteryBeacon", "drawStatusTable", "loop"]:
         body += function(source, name) + "\n"
     body += CHECKS
-    variants = [(rows, local, 5) for rows in (1, 8, 9, 16, 17, 127) for local in (0, 1)]
+    variants = [(rows, local, 5) for rows in (1, 8, 9, 16, 17, 19, 127) for local in (0, 1)]
     variants.append((128, 1, 5))
     variants += [(17, local, seconds) for local in (0, 1) for seconds in (2, 10)]
     with tempfile.TemporaryDirectory(prefix="wspd-display-") as temporary:
@@ -313,6 +398,7 @@ def main():
             if result.returncode == 0 or "static assertion" not in result.stderr:
                 raise SystemExit(f"Expected production assertion for {rows} rows, local={local}, interval={seconds}s")
     print(f"PASS: {len(variants)} LCD configurations; actual renderer, loop, alarm scan, and mute touch handler.")
+    print("Verified adaptive BAT for AC-DC/mixed/stale/off-page/local/unseen rows, radio units and non-overlapping LCD text.")
     print("Verified complete rows, version footer, off-page alarms, configurable 2/5/10-second timing, rollover, and mute debounce.")
     print("Host graphics and telemetry shims do not qualify physical LCD, touch, relay, RF, or maximum-device performance.")
 
