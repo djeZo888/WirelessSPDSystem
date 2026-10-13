@@ -26,6 +26,8 @@ the dashboard labels them as errors. Use status and availability rules from the
 | Endpoint | Behavior |
 | --- | --- |
 | `GET /` | Dashboard. |
+| `GET /ha-guide` | Complete local/offline HA setup guide; `?download=1` saves HTML. |
+| `GET /ha-rest.yaml` | Download the complete REST integration and mute-switch example. |
 | `GET /api/v1/get` | One JSON snapshot; `Cache-Control: no-store`. |
 | `GET /api/v1/get?pretty=1` | Same full snapshot, indented **text/plain** JSON for a new browser tab. |
 | `GET /api/v1/logs` | Bounded current-session event page; [fields and cursors](session-logs.md). |

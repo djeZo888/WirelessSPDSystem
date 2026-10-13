@@ -50,6 +50,12 @@ jobs:
       - name: Check authenticated OTA lifecycle
         if: matrix.target == 'server'
         run: python3 tests/check_server_ota.py
+      - name: Check offline Home Assistant guide and examples
+        if: matrix.target == 'server'
+        run: |
+          python3 -m venv /tmp/wspd-ha-check
+          /tmp/wspd-ha-check/bin/python -m pip install PyYAML==6.0.3 Jinja2==3.1.6
+          /tmp/wspd-ha-check/bin/python tests/check_home_assistant_guide.py
       - name: Check MQTT discovery and telemetry
         if: matrix.target == 'server'
         run: python3 tests/check_server_mqtt.py

@@ -1,0 +1,8 @@
+# Optional extra ACTION inside the fault automation's actions list.
+# Replace notify.mobile_app_your_phone with your actual action from Developer tools.
+- action: notify.mobile_app_your_phone
+  data:
+    title: "SPD fault"
+    message: >-
+      Fault reported by: {{ expand(spd_fault_entities) |
+      selectattr('state', 'eq', 'on') | map(attribute='name') | join(', ') }}.

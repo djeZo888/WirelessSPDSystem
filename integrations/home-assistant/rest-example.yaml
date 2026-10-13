@@ -1,6 +1,6 @@
-# Merge these sections into configuration.yaml. Set wireless_spd_api_url in
-# secrets.yaml. One GET returns all SPDs; templates create no extra HTTP calls.
-# Rename unique IDs and source entity references if adding another receiver.
+# Merge these keys into configuration.yaml; do not create duplicate top-level keys.
+# In secrets.yaml set wireless_spd_api_url and wireless_spd_base_url (see guide).
+# One GET supplies every SPD. Templates and the mute switch do not add polling.
 rest:
   - resource: !secret wireless_spd_api_url
     scan_interval: 10
@@ -13,6 +13,16 @@ rest:
           - gateway
           - summary
           - spds
+
+rest_command:
+  wireless_spd_mute:
+    url: "{{ receiver_url }}/api/v1/mute?value=1"
+    method: POST
+    timeout: 5
+  wireless_spd_unmute:
+    url: "{{ receiver_url }}/api/v1/mute?value=0"
+    method: POST
+    timeout: 5
 
 template:
   - sensor:
@@ -36,3 +46,28 @@ template:
           {% set rows = state_attr('sensor.wireless_spd_snapshot', 'spds') | default([], true) %}
           {% set matching = rows | selectattr('spd_id', 'eq', 1) | list %}
           {{ matching | count > 0 and matching[0].status == 'FAIL' }}
+    switch:
+      - name: "Wireless SPD REST alarm muted"
+        unique_id: wireless_spd_rest_alarm_muted
+        availability: >-
+          {{ has_value('sensor.wireless_spd_snapshot') and
+             state_attr('sensor.wireless_spd_snapshot', 'gateway') is mapping and
+             state_attr('sensor.wireless_spd_snapshot', 'gateway').alarm_muted is boolean }}
+        state: >-
+          {% set gateway = state_attr('sensor.wireless_spd_snapshot', 'gateway') | default({}, true) %}
+          {{ gateway.get('alarm_muted', false) }}
+        turn_on:
+          - action: rest_command.wireless_spd_mute
+            data:
+              receiver_url: !secret wireless_spd_base_url
+        turn_off:
+          - action: rest_command.wireless_spd_unmute
+            data:
+              receiver_url: !secret wireless_spd_base_url
+
+# Optional: keep the large aggregate snapshot out of history. Individual entities
+# retain their history. Merge with your existing recorder.exclude.entities list.
+recorder:
+  exclude:
+    entities:
+      - sensor.wireless_spd_snapshot

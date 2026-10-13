@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Wireless SPD System — Home Assistant setup</title><style>:root{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17242e;background:#fff;font-size:15px;line-height:1.65}*{box-sizing:border-box}body{margin:0}main{max-width:960px;margin:auto;padding:28px 30px 42px}h1,h2,h3{line-height:1.25;letter-spacing:-.025em}h1{font-size:29px;margin:12px 0 18px}h2{font-size:21px;margin:38px 0 14px;scroll-margin-top:18px}h3{font-size:17px}p{margin:13px 0}a{color:#087f76;text-underline-offset:3px;overflow-wrap:anywhere}a:focus-visible{outline:3px solid #4cc3b4;outline-offset:3px}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.86em;background:#f0f4f6;padding:2px 4px;border-radius:3px;overflow-wrap:anywhere}pre{max-width:100%;overflow-x:auto;border:1px solid #dce4e9;border-radius:9px;background:#f5f8fa;padding:15px;line-height:1.5;font-size:13px}pre code{background:none;padding:0;white-space:pre;overflow-wrap:normal;font-size:inherit}li{margin:8px 0;padding-left:4px}nav{padding:18px 22px;border:1px solid #dce4e9;border-radius:12px;background:#f9fbfc;margin:22px 0}nav h2{margin:0 0 10px;font-size:17px}nav ol{list-style:none;padding-left:0;margin:0;columns:2;column-gap:25px}nav li{padding-left:0;break-inside:avoid;font-size:13px;margin:5px 0}.table-scroll{max-width:100%;overflow-x:auto;border:1px solid #dce4e9;border-radius:8px;margin:18px 0}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #e5ebef;vertical-align:top}th{background:#f5f8fa}tr:last-child td{border-bottom:0}.embedded .downloads{display:none}.downloads{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:12px;padding-bottom:15px;border-bottom:1px solid #e5ebef}.downloads a{display:inline-block;padding:7px 10px;background:#f5f8fa;border:1px solid #dce4e9;border-radius:7px;text-decoration:none}.foot{font-size:12px;color:#637583;margin-top:32px;border-top:1px solid #e5ebef;padding-top:16px}@media(max-width:600px){main{padding:16px 16px 30px}h1{font-size:25px}h2{font-size:19px;margin-top:30px}nav{padding:15px}nav ol{columns:1}pre{font-size:11px;padding:12px}th,td{padding:9px}}@media print{main{padding:0;max-width:none}nav{display:none}.downloads{display:none}pre{white-space:pre-wrap;overflow:visible}pre code{white-space:pre-wrap;overflow-wrap:anywhere}h2{break-after:avoid}table{break-inside:avoid}a{color:inherit}}</style></head><body><main>
+<div class="downloads"><a href="/ha-guide" download="WirelessSPDSystem-Home-Assistant.html">Save complete HTML guide</a><a href="/ha-rest.yaml" download="wireless-spd-rest.yaml">Download REST YAML</a><a href="/" target="_top">Receiver dashboard</a></div>
+<h1 id="home-assistant-setup">Home Assistant setup</h1>
+<p>This guide connects the T Connect Pro receiver to Home Assistant, creates SPD entities, adds alarm mute control and notifications, and checks the result. <strong>MQTT Discovery is recommended:</strong> it creates the devices automatically. The REST alternative needs no broker and reads the complete SPD list in one request.</p>
+<nav aria-label="Setup steps"><h2>In this guide</h2><ol><li><a href="#1-prepare-the-network-and-tools">1. Prepare the network and tools</a></li><li><a href="#2a-broker-on-home-assistant-os">2A. Broker on Home Assistant OS</a></li><li><a href="#2b-separate-broker-for-container-or-legacy-core">2B. Separate broker for Container or legacy Core</a></li><li><a href="#3-add-mqtt-to-home-assistant">3. Add MQTT to Home Assistant</a></li><li><a href="#4-configure-and-install-the-receiver-image">4. Configure and install the receiver image</a></li><li><a href="#5-check-discovered-devices-and-add-controls">5. Check discovered devices and add controls</a></li><li><a href="#6-add-fault-and-missing-monitoring-notifications">6. Add fault and missing-monitoring notifications</a></li><li><a href="#7-acceptance-checks">7. Acceptance checks</a></li><li><a href="#8-troubleshooting">8. Troubleshooting</a></li><li><a href="#9-rest-alternative-including-mute-control">9. REST alternative, including mute control</a></li><li><a href="#10-topic-reference-and-retiring-a-device">10. Topic reference and retiring a device</a></li><li><a href="#references-and-maintenance">References and maintenance</a></li></ol></nav>
+<p>The full guide is stored inside the receiver at <strong><code>/ha-guide</code></strong> and embedded in its <strong>HA Integration</strong> tab. Save that page as HTML, and download <strong><code>/ha-rest.yaml</code></strong> for the REST example. All instructions and example code below can be read without Internet; external reference links are optional. Installing Home Assistant, broker/editor apps, container images, Arduino packages or phone apps may require Internet. Download/install those prerequisites before an offline installation. This guide assumes Home Assistant is already installed and its initial owner account is working; it does not provision a new host operating system.</p>
+<p>MQTT device discovery requires <strong>Home Assistant Core 2024.11 or newer</strong>. Use a current supported release and check its Core version in System information before installation. The REST path does not use device discovery. <a href="https://www.home-assistant.io/blog/2024/11/06/release-202411/" rel="noopener" target="_blank">Device discovery introduction</a></p>
+<h2 id="1-prepare-the-network-and-tools">1. Prepare the network and tools</h2>
+<p>You need the receiver and its LoRa antenna, the correct private beacon IDs/keys, a 2.4 GHz Wi-Fi LAN, Home Assistant administrator access, and a computer with this repository plus Arduino CLI and the Arduino dependencies already installed. MQTT also needs one private broker. For REST, arrange access to Home Assistant&#x27;s configuration files. Back up the Home Assistant configuration and receiver <code>config.h</code> first.</p>
+<p><strong>Before moving offline</strong>, on the computer that will build the firmware, obtain this repository and Arduino CLI, then run this from the repository root while Internet is available:</p>
+<pre><code class="language-sh">python3 tools/firmware.py setup server</code></pre>
+<p>This setup command always refreshes online package indexes; do not run it as an offline build step. Keep the complete checkout and its ignored <strong><code>.arduino/</code></strong> folder, including installed packages/libraries, on that same computer. Keep Arduino CLI available too. Also install Home Assistant, the broker, any File editor app and optional phone app before moving offline. For Arduino IDE instead of the CLI, install the exact core/libraries listed in section 4 beforehand. The later build/upload commands use these prepared local dependencies.</p>
+<p>For the separate Docker broker path, also fetch its image <strong>on the Linux broker host while online</strong>, before running section 2B at the installation:</p>
+<pre><code class="language-sh">docker pull eclipse-mosquitto:2
+docker image inspect eclipse-mosquitto:2 &gt;/dev/null</code></pre>
+<p>Keep that image on the broker host. Section 2B uses <code>--pull never</code> so an absent image fails locally instead of attempting an Internet download; if it is absent, return online and complete this preparation first.</p>
+<p>In Home Assistant open <strong>Settings → System → Repairs → ⋮ → System information</strong> and read the installation type. <strong>Home Assistant OS</strong> supports apps, formerly called add-ons. <strong>Home Assistant Container</strong> has no app store; run a separate broker. A legacy Core/Python installation follows the separate-broker path. The current supported installation choices are OS and Container. <a href="https://www.home-assistant.io/installation/" rel="noopener" target="_blank">Installation types</a></p>
+<p>Use one LAN for the receiver, broker and Home Assistant. Guest Wi-Fi/client isolation or VLAN rules may prevent them communicating. The receiver&#x27;s fallback access point alone has no route to a broker on your home LAN. MQTT requires station Wi-Fi; REST also needs Home Assistant to reach the receiver&#x27;s IP.</p>
+<p>Find the Home Assistant/broker IP and the receiver IP in your router&#x27;s client list. The receiver LCD and API also show its address. Create <strong>DHCP reservations</strong> for the broker and receiver in the router, using their listed MAC addresses. Router menu names differ; use its DHCP/LAN reservation function. Use the broker&#x27;s LAN IP, not <code>127.0.0.1</code>, <code>localhost</code>, a Docker-internal address or <code>core-mosquitto</code> in the ESP32 configuration. Examples below use broker <strong>192.168.1.20</strong> and receiver <strong>192.168.1.30</strong>; replace both with yours.</p>
+<h2 id="2a-broker-on-home-assistant-os">2A. Broker on Home Assistant OS</h2>
+<p>If you already have a working broker, retain it and proceed to section 3. If Mosquitto is not installed, <strong>while online</strong> open <strong>Settings → Apps → Install app</strong>, find <strong>Mosquitto broker</strong>, and install it before moving offline. Older Home Assistant versions label this <strong>Settings → Add-ons → Add-on Store</strong>. At the installation open the <strong>already installed</strong> Mosquitto app, enable <strong>Start on boot</strong>, and start it. Check its <strong>Log</strong> tab and keep TCP port <strong>1883</strong> exposed to the LAN in its Network settings. Starting/configuring the installed app needs no app download.</p>
+<p>Create a device account: open your user profile and enable <strong>Advanced mode</strong> if needed; open <strong>Settings → People → Users → Add user</strong>. Use display name <strong>Wireless SPD receiver</strong>, username <strong>wirelessspd</strong>, and a strong unique password. Leave <strong>Administrator OFF</strong> and keep the account active. It needs no associated person or location tracking. Never reuse the owner account. The Mosquitto app accepts these Home Assistant user credentials. Do not use reserved usernames <code>homeassistant</code> or <code>addons</code>. <a href="https://github.com/home-assistant/addons/blob/master/mosquitto/DOCS.md" rel="noopener" target="_blank">Official Mosquitto app instructions</a> <a href="https://www.home-assistant.io/docs/configuration/user-configuration/" rel="noopener" target="_blank">User account permissions</a></p>
+<h2 id="2b-separate-broker-for-container-or-legacy-core">2B. Separate broker for Container or legacy Core</h2>
+<p>Home Assistant users are <strong>not</strong> automatically broker users on a separate Mosquitto server. Create broker logins instead: <code>wirelessspd</code> for the receiver and <code>ha_mqtt</code> for Home Assistant. Use an existing managed broker if available. The following complete example is for a <strong>Linux Docker host with Docker already installed</strong>, not the Home Assistant OS app or a default macOS Docker setup.</p>
+<p>In a new directory, create <code>config/</code> and <code>data/</code>, then save this as <code>config/mosquitto.conf</code>:</p>
+<pre><code class="language-text">listener 1883
+allow_anonymous false
+password_file /mosquitto/config/passwords
+persistence true
+persistence_location /mosquitto/data/
+log_dest stdout</code></pre>
+<p>Run these commands in that directory. The first two account commands ask for passwords interactively; <code>-c</code> creates the file only on the first command. Do not repeat <code>-c</code> when adding the second user, because it would replace the first. Use an unused container name and port; keep any existing broker running until its settings have been recorded.</p>
+<pre><code class="language-sh">mkdir -p config data
+docker run --pull never --rm -it --user 0 -v &quot;$PWD/config:/mosquitto/config&quot; eclipse-mosquitto:2 mosquitto_passwd -c /mosquitto/config/passwords wirelessspd
+docker run --pull never --rm -it --user 0 -v &quot;$PWD/config:/mosquitto/config&quot; eclipse-mosquitto:2 mosquitto_passwd /mosquitto/config/passwords ha_mqtt
+sudo chown -R 1883:1883 config data
+sudo chmod 600 config/passwords
+docker run --pull never -d --name wireless-spd-mqtt --restart unless-stopped -p 1883:1883 -v &quot;$PWD/config:/mosquitto/config&quot; -v &quot;$PWD/data:/mosquitto/data&quot; eclipse-mosquitto:2
+docker logs wireless-spd-mqtt</code></pre>
+<p>Use the Linux host&#x27;s LAN IP for both clients. Permit TCP 1883 between those LAN clients and the broker; do not forward it to the Internet. This example grants an authenticated broker login access to all topics. If you already use ACLs, the receiver needs <strong>write</strong> access to <code>wirelessspd/&lt;gateway_id&gt;/#</code> and its <code>homeassistant/device/&lt;gateway_id&gt;*/config</code> topics, and <strong>read</strong> access to <code>homeassistant/status</code> and its own command topic. It also writes its command topic to clear an old retained command. Expand patterns into the exact topics in your ACL&#x27;s syntax; do not assume shell-style <code>*</code> is an MQTT wildcard. <a href="https://hub.docker.com/_/eclipse-mosquitto" rel="noopener" target="_blank">Official image</a> <a href="https://mosquitto.org/man/mosquitto-conf-5.html" rel="noopener" target="_blank">Broker configuration</a> <a href="https://mosquitto.org/man/mosquitto_passwd-1.html" rel="noopener" target="_blank">Password-file tool</a></p>
+<h2 id="3-add-mqtt-to-home-assistant">3. Add MQTT to Home Assistant</h2>
+<p>Open <strong>Settings → Devices &amp; services → Integrations</strong>. If Mosquitto appears under <strong>Discovered</strong>, choose <strong>Configure</strong> and complete its prompts. Otherwise choose <strong>Add integration → MQTT</strong>, enter the broker LAN IP and <strong>1883</strong>, and its Home Assistant broker login. On OS the discovered setup manages its own integration credentials; on the separate broker use <strong>ha_mqtt</strong>, not the receiver account. Use TCP without TLS for this port; retain the integration&#x27;s generated client ID.</p>
+<p>On the MQTT integration card, open <strong>Configure MQTT options</strong> (some versions: <strong>Configure → Re-configure MQTT → Next</strong>). Keep <strong>discovery enabled</strong>, discovery prefix <strong>homeassistant</strong>, birth topic <strong>homeassistant/status</strong>, and birth payload <strong>online</strong>. The receiver subscribes to that birth message to resend discovery. Do not create individual MQTT sensors or a custom integration: this firmware publishes their definitions. <a href="https://www.home-assistant.io/integrations/mqtt/" rel="noopener" target="_blank">Home Assistant MQTT setup</a></p>
+<h2 id="4-configure-and-install-the-receiver-image">4. Configure and install the receiver image</h2>
+<p>Edit only <strong><code>firmware/servers/tconnectpro_868/config.h</code></strong>. For a fresh checkout, copy adjacent <code>config.example.h</code> first; it contains intentionally invalid beacon keys until you configure it. On an existing installation, add missing fields from the current example and preserve Wi-Fi, all beacon registrations/keys, radio, display, local-contact, log and update settings. Do not overwrite your working private file with the example.</p>
+<pre><code class="language-cpp">static const char *WIFI_SSID = &quot;YOUR_2_4_GHZ_LAN&quot;;
+static const char *WIFI_PASSWORD = &quot;YOUR_WIFI_PASSWORD&quot;;
+static const char *MQTT_HOST = &quot;192.168.1.20&quot;;
+constexpr auto MQTT_PORT = 1883;
+static const char *MQTT_USERNAME = &quot;wirelessspd&quot;;
+static const char *MQTT_PASSWORD = &quot;YOUR_DEVICE_ACCOUNT_PASSWORD&quot;;
+static const char *MQTT_BASE_TOPIC = &quot;wirelessspd&quot;;
+constexpr auto MQTT_PUBLISH_SECONDS = 10;</code></pre>
+<p>Keep a valid fallback AP password of 8–63 characters. Each <code>SPD_CONFIGS</code> entry must match its transmitter ID and nonzero four-byte secret. Frequency/SF must match every beacon: defaults <strong>865.3 MHz / SF10</strong>. IDs 1–9 are for pre-production, 10–127 for production. Choose a stale threshold longer than the beacon&#x27;s normal reporting interval; the default <strong>700 seconds</strong> accommodates 5–10 minute reports. Set <strong><code>CONFIGURED = true</code></strong> after filling the complete configuration. An empty <code>MQTT_HOST</code> disables MQTT; a configured unreachable broker does not stop LoRa or the local alarm. MQTT uses unencrypted TCP, and HTTP uses no TLS. Keep both on your trusted LAN.</p>
+<p>With the section 1 prerequisites already prepared, run the following from the repository root to build and upload; these steps need no package downloads:</p>
+<pre><code class="language-sh">python3 tools/firmware.py build server
+arduino-cli --config-file .arduino/arduino-cli.yaml board list
+python3 tools/firmware.py flash server --port /dev/cu.usbmodemYOUR_PORT</code></pre>
+<p>If dependencies are missing, return online and complete the setup in section 1 before trying an offline build. Replace the USB port with the board&#x27;s detected port (<code>COMn</code> on Windows). Use a data cable. If the bootloader does not start, hold BOOT, press/release RESET, release BOOT and retry. Serial diagnostics use <strong>115200 baud</strong>. The build/flash helper checks that your private configuration and image still match; rebuild after any edit.</p>
+<p>In Arduino IDE use <strong>ESP32 core 3.3.12</strong>, <strong>RadioLib 7.8.1</strong>, <strong>GFX Library for Arduino 1.6.9</strong>, and <strong>PubSubClient 2.8</strong>. Open the <code>.ino</code> with its adjacent config:</p>
+<div class="table-scroll"><table><thead><tr><th>Board option</th><th>Value</th></tr></thead><tbody><tr><td>Board</td><td>ESP32S3 Dev Module</td></tr><tr><td>Flash size / mode / frequency</td><td>16 MB / QIO / 80 MHz</td></tr><tr><td>Partition Scheme</td><td>16M Flash (3MB APP / 9.9MB FATFS)</td></tr><tr><td>PSRAM</td><td>OPI PSRAM</td></tr><tr><td>USB Mode / CDC On Boot</td><td>Hardware CDC and JTAG / Enabled</td></tr><tr><td>CPU / upload speed</td><td>240 MHz / 460800</td></tr></tbody></table></div>
+<p>For an already OTA-enabled receiver, build the same application and open its <strong>Firmware</strong> tab. Select <strong><code>tconnectpro_868.ino.bin</code></strong>, not a merged image, bootloader or partition file; enter its installed update token and upload. Monitoring pauses and the relay is OFF during updating/restart. The new image contains the new configuration; retain <code>OTA_ENABLED</code> and the private <code>OTA_TOKEN</code> if you want subsequent network updates. Current tokens use 32–128 ASCII letters and no username. If the installed older image still asks for username/password, use that image&#x27;s old credentials for the one upgrade, or use USB. USB is also the recovery path if the image boots incorrectly. Firmware binaries contain credentials: keep them and <code>config.h</code> private.</p>
+<h2 id="5-check-discovered-devices-and-add-controls">5. Check discovered devices and add controls</h2>
+<p>After the receiver boots on your LAN, open its dashboard. In <strong>HA Integration</strong> check that MQTT is enabled and connected. Open <strong><code>/api/v1/get</code></strong> and record <strong><code>gateway.gateway_id</code></strong>. Its format is <code>wspd-</code> followed by twelve hexadecimal hardware-identity digits; for example <code>wspd-aabbccddeeff</code>. It is independent of the IP address. No keys/passwords are exposed by the read-only API.</p>
+<p>In Home Assistant, open the MQTT integration&#x27;s <strong>Devices</strong> list. Expect one <strong>Wireless SPD receiver</strong> device and one device for <strong>each configured SPD</strong>, including beacons not received yet. Wait roughly 30–60 seconds for a first connection/discovery cycle. Friendly names come from <code>SPD_CONFIGS</code>.</p>
+<div class="table-scroll"><table><thead><tr><th>Device</th><th>Entities</th></tr></thead><tbody><tr><td>Receiver</td><td>Configured, faulty, stale and unknown counts; uptime; alarm-muted diagnostic; <strong>Alarm muted switch</strong>.</td></tr><tr><td>Wireless SPD</td><td>Status, fault, temperature, battery voltage, RSSI, SNR, report age and packet loss.</td></tr><tr><td>Optional local contact</td><td>Status and fault; no radio/temperature/battery entities.</td></tr></tbody></table></div>
+<p>Open each fault entity and its settings/gear to read its <strong>entity ID</strong>. Friendly names can produce different IDs, so do not guess them from the numeric beacon ID. For the three-SPD notification examples below, rename the selected fault entities to <strong><code>binary_sensor.spd_1_fault</code></strong>, <strong><code>binary_sensor.spd_2_fault</code></strong>, and <strong><code>binary_sensor.spd_3_fault</code></strong>, or replace both entity lists in each example with your real IDs. Include every SPD you intend to monitor. With multiple receivers, use distinct names such as <code>binary_sensor.garage_spd_1_fault</code>.</p>
+<p>Open the receiver&#x27;s <strong>Alarm muted</strong> switch. <strong>ON = relay muted; OFF = relay allowed to sound according to its configured alarm pattern.</strong> Turning it off does not force an alarm when no fresh fault exists. Add it to a dashboard from its entity dialog or an Entities card. The LCD, web MUTE/UNMUTE button and this switch control the same flag. Monitoring, red warnings and notifications continue when muted. State feedback normally arrives within the publish interval (default 10 s), often sooner; do not treat an unavailable switch as OFF. Muting is cleared by receiver reboot. MQTT commands are nonretained, preventing an old command being replayed on reconnect.</p>
+<p><strong>Status</strong> reads OK, FAIL, UNKNOWN or STALE. Fault is ON only for fresh FAIL and OFF only for fresh OK. UNKNOWN/STALE fault entities are <strong>unavailable</strong>, not healthy. Invalid/missing numeric readings are unavailable; telemetry needs a fresh report, while age/loss diagnostics remain useful after a beacon was seen. Gateway loss/OTA pause also makes the entities unavailable. Receiver restart clears RAM readings and they return to UNKNOWN until new authenticated reports.</p>
+<h2 id="6-add-fault-and-missing-monitoring-notifications">6. Add fault and missing-monitoring notifications</h2>
+<p>The following examples create Home Assistant sidebar notifications and require no phone or cloud. They do not command the physical relay. To install each one, open <strong>Settings → Automations &amp; scenes → Create automation → Create new automation → ⋮ → Edit in YAML</strong>, replace the editor contents with one complete block, adjust both entity lists, then <strong>Save</strong> and enable it. Paste the second block into a <strong>separate</strong> new automation. These blocks have no outer <code>automation:</code> key because they are for the single-automation editor. <a href="https://www.home-assistant.io/docs/automation/editor/" rel="noopener" target="_blank">Automation editor</a></p>
+<p>The first alerts on a fresh fault, with five seconds of debounce, and also checks existing faults at Home Assistant startup:</p>
+<pre><code class="language-yaml"># Paste this single automation into a NEW automation&#x27;s Edit in YAML editor.
+# First rename/select your real fault entities; change both lists consistently.
+alias: Wireless SPD - fault notification
+mode: restart
+variables:
+  spd_fault_entities:
+    - binary_sensor.spd_1_fault
+    - binary_sensor.spd_2_fault
+    - binary_sensor.spd_3_fault
+triggers:
+  - trigger: state
+    entity_id:
+      - binary_sensor.spd_1_fault
+      - binary_sensor.spd_2_fault
+      - binary_sensor.spd_3_fault
+    to: &quot;on&quot;
+    for: &quot;00:00:05&quot;
+  - trigger: homeassistant
+    event: start
+conditions:
+  - condition: template
+    value_template: &gt;-
+      {{ expand(spd_fault_entities) | selectattr(&#x27;state&#x27;, &#x27;eq&#x27;, &#x27;on&#x27;) | list | count &gt; 0 }}
+actions:
+  - action: persistent_notification.create
+    data:
+      notification_id: wireless_spd_fault
+      title: &quot;SPD fault&quot;
+      message: &gt;-
+        Fault reported by: {{ expand(spd_fault_entities) |
+        selectattr(&#x27;state&#x27;, &#x27;eq&#x27;, &#x27;on&#x27;) | map(attribute=&#x27;name&#x27;) | join(&#x27;, &#x27;) }}.
+        Check the receiver and the affected SPD. Muting silences the relay only;
+        the fault remains active until the SPD reports healthy.</code></pre>
+<p>The second alerts after a fault entity stays unavailable/unknown for a minute; it also waits a minute after Home Assistant startup before checking missing entities. This is a separate monitoring warning and must not be interpreted as proof of SPD failure or health:</p>
+<pre><code class="language-yaml"># Paste into a SECOND new automation&#x27;s Edit in YAML editor.
+# Change both entity lists to match every SPD fault entity you intend to monitor.
+alias: Wireless SPD - missing monitoring notification
+mode: restart
+variables:
+  spd_fault_entities:
+    - binary_sensor.spd_1_fault
+    - binary_sensor.spd_2_fault
+    - binary_sensor.spd_3_fault
+triggers:
+  - trigger: state
+    entity_id:
+      - binary_sensor.spd_1_fault
+      - binary_sensor.spd_2_fault
+      - binary_sensor.spd_3_fault
+    to: &quot;unavailable&quot;
+    for: &quot;00:01:00&quot;
+  - trigger: state
+    entity_id:
+      - binary_sensor.spd_1_fault
+      - binary_sensor.spd_2_fault
+      - binary_sensor.spd_3_fault
+    to: &quot;unknown&quot;
+    for: &quot;00:01:00&quot;
+  - trigger: homeassistant
+    event: start
+conditions: []
+actions:
+  - if:
+      - condition: template
+        value_template: &quot;{{ trigger.platform == &#x27;homeassistant&#x27; }}&quot;
+    then:
+      - delay: &quot;00:01:00&quot;
+  - condition: template
+    value_template: &gt;-
+      {{ expand(spd_fault_entities) | selectattr(&#x27;state&#x27;, &#x27;in&#x27;, [&#x27;unknown&#x27;, &#x27;unavailable&#x27;]) |
+         list | count &gt; 0 or expand(spd_fault_entities) | list | count &lt; spd_fault_entities | count }}
+  - action: persistent_notification.create
+    data:
+      notification_id: wireless_spd_monitoring_missing
+      title: &quot;SPD monitoring unavailable&quot;
+      message: &gt;-
+        At least one configured fault entity is unknown, unavailable or missing.
+        Check receiver power, Wi-Fi/MQTT, beacon reporting and the selected entity IDs.
+        Missing monitoring is not a healthy-SPD confirmation.</code></pre>
+<p>Read the notifications from Home Assistant&#x27;s sidebar notification/bell area. They remain until you dismiss them; dismiss only after checking the installation. For a no-hardware acceptance test, open <strong>Developer tools → Actions</strong>, choose <strong>Persistent notification: Create</strong>, provide a title/message and run it. To test an automation&#x27;s action path, use its <strong>Run actions</strong> menu; this bypasses triggers and conditions and does not prove live fault detection. <a href="https://www.home-assistant.io/integrations/persistent_notification/" rel="noopener" target="_blank">Persistent notifications</a></p>
+<p>For optional phone push, install/configure the Home Assistant Companion app, allow notifications, and sign it into your instance. In <strong>Developer tools → Actions</strong> find its actual <code>notify.mobile_app_...</code> action and send a test message. Append this action to the first automation&#x27;s <code>actions:</code> list and replace the placeholder with that action ID. Phone push may need Internet/push services; verify it separately rather than relying on it for offline local alerts:</p>
+<pre><code class="language-yaml"># Optional extra ACTION inside the fault automation&#x27;s actions list.
+# Replace notify.mobile_app_your_phone with your actual action from Developer tools.
+- action: notify.mobile_app_your_phone
+  data:
+    title: &quot;SPD fault&quot;
+    message: &gt;-
+      Fault reported by: {{ expand(spd_fault_entities) |
+      selectattr(&#x27;state&#x27;, &#x27;eq&#x27;, &#x27;on&#x27;) | map(attribute=&#x27;name&#x27;) | join(&#x27;, &#x27;) }}.</code></pre>
+<p>For email or another notifier, set up that notification integration first, verify its action in Developer tools, and use that action instead. The built-in persistent notification remains a usable local alternative. <a href="https://companion.home-assistant.io/docs/notifications/notifications-basic/" rel="noopener" target="_blank">Companion notifications</a></p>
+<h2 id="7-acceptance-checks">7. Acceptance checks</h2>
+<ol><li>Compare the dashboard, API and Home Assistant device list: every configured SPD ID/name should be present, even if it is UNKNOWN. The API returns all of them in one response, independent of LCD pages.</li><li>Wait for a normal beacon report. Its status and radio telemetry should update in Home Assistant within the MQTT publish interval after reception. Production reports may be 5–10 minutes apart; your pre-production beacon may be faster.</li><li>Using only the intended isolated SPD contact, verify a known healthy/fault transition changes receiver status and the corresponding HA fault entity. An unconnected contact can legitimately report FAIL. Do not inject live voltage into a contact input.</li><li>Test the Alarm muted switch ON, then OFF; compare the web/LCD mute indicator. Leave the desired final state and confirm red warnings remain during FAIL.</li><li>Confirm both automations&#x27; action paths and, if installed, phone delivery. Observe a real contact change to test the complete live trigger path.</li><li>During an agreed interruption, stop beacon reporting long enough to exceed the stale threshold. Status becomes STALE and fault unavailable. Restoring reports restores availability. Separately check receiver/network loss and reconnection; allow the MQTT keepalive/expiry time rather than expecting an instantaneous transition. Do not perform this during an essential alarm duty.</li></ol>
+<p>These checks verify the configured integration; no software-only test establishes physical SPD protection, relay wiring or notification delivery for your site.</p>
+<h2 id="8-troubleshooting">8. Troubleshooting</h2>
+<div class="table-scroll"><table><thead><tr><th>Symptom</th><th>Check/action</th></tr></thead><tbody><tr><td>Receiver MQTT disabled</td><td><code>MQTT_HOST</code> was empty in the flashed image. Rebuild with its broker settings.</td></tr><tr><td>MQTT enabled but disconnected</td><td>Receiver must be on station Wi-Fi; check broker LAN IP/1883, login, broker log, guest isolation/VLAN/firewall, and DNS. Try a reserved IPv4 address. Retries back off 30 s.</td></tr><tr><td>MQTT connected, no devices</td><td>HA must use the same broker with discovery prefix <code>homeassistant</code> and birth topic <code>homeassistant/status</code>. In the MQTT integration&#x27;s Configure page, listen to <code>homeassistant/device/#</code> and <code>wirelessspd/#</code>. Check broker ACLs.</td></tr><tr><td>Devices exist, fault unavailable</td><td>UNKNOWN/STALE or gateway offline is intentional. Check receiver Logs, beacon ID/key, frequency/SF, reporting interval and stale threshold. Invalid battery/temperature affects only that telemetry entity.</td></tr><tr><td>Temperature unavailable</td><td>Check ADC/NTC fault labels on the receiver; sentinels −128/−127/−126 are errors, not valid temperatures.</td></tr><tr><td>No notification</td><td>Check selected entity IDs, automation enabled state and Traces, trigger debounce, and the tested notifier action. Run actions tests only actions.</td></tr><tr><td>Mute switch unavailable/stale</td><td>Check gateway availability and MQTT. For REST wait for the next poll; request failure makes it unavailable. ON is muted.</td></tr><tr><td>Duplicate old devices</td><td>Old discovery remains retained after removing an SPD or changing topics; use section 10 to remove only the retired exact topics.</td></tr><tr><td>REST snapshot unavailable</td><td>Open the API from another LAN client, check reserved IP and secret URL; an HTTP timeout makes the source unavailable.</td></tr></tbody></table></div>
+<h2 id="9-rest-alternative-including-mute-control">9. REST alternative, including mute control</h2>
+<p>Choose REST instead of MQTT if you do not want a broker. Leave <code>MQTT_HOST</code> empty; keep station Wi-Fi configured. Download <strong><code>/ha-rest.yaml</code></strong> locally or use the complete block below. It performs <strong>one GET every 10 s for the whole SPD list</strong>, creates example status/fault entities for ID 1, and adds an alarm-muted switch using explicit POST mute/unmute commands. Template entities add no extra polls.</p>
+<p>Open Home Assistant&#x27;s configuration folder. On OS, open the <strong>already installed File editor</strong> app (or another installed editor), then open <code>/config/configuration.yaml</code> and adjacent <code>secrets.yaml</code>. If no editor is installed, install one from Apps while online before proceeding offline. On Container edit the host directory mounted at <code>/config</code>. Its location is listed under System information. Back up the files. In <code>secrets.yaml</code> add these two values using your receiver&#x27;s reserved IP; the base URL has <strong>no trailing slash</strong>:</p>
+<pre><code class="language-yaml">wireless_spd_api_url: &quot;http://192.168.1.30/api/v1/get&quot;
+wireless_spd_base_url: &quot;http://192.168.1.30&quot;</code></pre>
+<p>Merge the block into <code>configuration.yaml</code>. <strong>Do not duplicate</strong> <code>rest:</code>, <code>rest_command:</code>, <code>template:</code> or <code>recorder:</code> keys. If a key already exists, add its new list/map entries under that existing key with correct indentation. If it uses <code>!include</code>, edit the included file instead and omit that file&#x27;s outer key as appropriate. Leave your other integrations and <code>default_config:</code> intact. The optional Recorder exclusion prevents saving the large aggregate snapshot on every poll; individual entities still retain their history.</p>
+<pre><code class="language-yaml"># Merge these keys into configuration.yaml; do not create duplicate top-level keys.
+# In secrets.yaml set wireless_spd_api_url and wireless_spd_base_url (see guide).
+# One GET supplies every SPD. Templates and the mute switch do not add polling.
+rest:
+  - resource: !secret wireless_spd_api_url
+    scan_interval: 10
+    timeout: 5
+    sensor:
+      - name: &quot;Wireless SPD snapshot&quot;
+        unique_id: wireless_spd_snapshot
+        value_template: &quot;{{ value_json.summary.configured }}&quot;
+        json_attributes:
+          - gateway
+          - summary
+          - spds
+
+rest_command:
+  wireless_spd_mute:
+    url: &quot;{{ receiver_url }}/api/v1/mute?value=1&quot;
+    method: POST
+    timeout: 5
+  wireless_spd_unmute:
+    url: &quot;{{ receiver_url }}/api/v1/mute?value=0&quot;
+    method: POST
+    timeout: 5
+
+template:
+  - sensor:
+      - name: &quot;SPD 1 status&quot;
+        unique_id: wireless_spd_1_status
+        availability: &quot;{{ has_value(&#x27;sensor.wireless_spd_snapshot&#x27;) }}&quot;
+        state: &gt;-
+          {% set rows = state_attr(&#x27;sensor.wireless_spd_snapshot&#x27;, &#x27;spds&#x27;) | default([], true) %}
+          {% set matching = rows | selectattr(&#x27;spd_id&#x27;, &#x27;eq&#x27;, 1) | list %}
+          {{ matching[0].status if matching else &#x27;UNKNOWN&#x27; }}
+    binary_sensor:
+      - name: &quot;SPD 1 fault&quot;
+        unique_id: wireless_spd_1_fault
+        device_class: problem
+        availability: &gt;-
+          {% set rows = state_attr(&#x27;sensor.wireless_spd_snapshot&#x27;, &#x27;spds&#x27;) | default([], true) %}
+          {% set matching = rows | selectattr(&#x27;spd_id&#x27;, &#x27;eq&#x27;, 1) | list %}
+          {{ has_value(&#x27;sensor.wireless_spd_snapshot&#x27;) and matching | count &gt; 0
+             and matching[0].status in [&#x27;OK&#x27;, &#x27;FAIL&#x27;] }}
+        state: &gt;-
+          {% set rows = state_attr(&#x27;sensor.wireless_spd_snapshot&#x27;, &#x27;spds&#x27;) | default([], true) %}
+          {% set matching = rows | selectattr(&#x27;spd_id&#x27;, &#x27;eq&#x27;, 1) | list %}
+          {{ matching | count &gt; 0 and matching[0].status == &#x27;FAIL&#x27; }}
+    switch:
+      - name: &quot;Wireless SPD REST alarm muted&quot;
+        unique_id: wireless_spd_rest_alarm_muted
+        availability: &gt;-
+          {{ has_value(&#x27;sensor.wireless_spd_snapshot&#x27;) and
+             state_attr(&#x27;sensor.wireless_spd_snapshot&#x27;, &#x27;gateway&#x27;) is mapping and
+             state_attr(&#x27;sensor.wireless_spd_snapshot&#x27;, &#x27;gateway&#x27;).alarm_muted is boolean }}
+        state: &gt;-
+          {% set gateway = state_attr(&#x27;sensor.wireless_spd_snapshot&#x27;, &#x27;gateway&#x27;) | default({}, true) %}
+          {{ gateway.get(&#x27;alarm_muted&#x27;, false) }}
+        turn_on:
+          - action: rest_command.wireless_spd_mute
+            data:
+              receiver_url: !secret wireless_spd_base_url
+        turn_off:
+          - action: rest_command.wireless_spd_unmute
+            data:
+              receiver_url: !secret wireless_spd_base_url
+
+# Optional: keep the large aggregate snapshot out of history. Individual entities
+# retain their history. Merge with your existing recorder.exclude.entities list.
+recorder:
+  exclude:
+    entities:
+      - sensor.wireless_spd_snapshot</code></pre>
+<p>For SPD 2 or 3, copy the <code>sensor</code> and <code>binary_sensor</code> entries, change each name and <code>unique_id</code>, and change the numeric ID in <strong>every</strong> <code>selectattr(&#x27;spd_id&#x27;, &#x27;eq&#x27;, 1)</code> expression. Match by ID, never by array position. Add the new entries under the same lists. Do not duplicate the receiver-wide mute switch. All raw telemetry remains available in the snapshot sensor&#x27;s <code>spds</code> attribute; MQTT is the easier route when you want automatic separate telemetry entities for every SPD.</p>
+<p>Open <strong>Developer tools → YAML → Check configuration</strong> (enable Advanced mode if that view is hidden). Fix errors before using its <strong>Restart</strong> option; for Container you can also restart the existing Home Assistant container. After restart, open <strong>Developer tools → States</strong>, find <code>sensor.wireless_spd_snapshot</code>, and inspect <code>gateway</code>, <code>summary</code> and <code>spds</code>. Confirm <code>sensor.spd_1_status</code>, <code>binary_sensor.spd_1_fault</code> and <code>switch.wireless_spd_rest_alarm_muted</code> exist; an existing name conflict may add a suffix, so use their actual entity IDs. The switch&#x27;s ON/OFF meaning is identical to MQTT and reflects the next poll. If the snapshot is unavailable, fault/control availability is withheld rather than assuming safe readings. The notification examples above work with these fault entities after adjusting the selected IDs. <a href="https://www.home-assistant.io/integrations/rest/" rel="noopener" target="_blank">REST</a> <a href="https://www.home-assistant.io/integrations/rest_command/" rel="noopener" target="_blank">REST commands</a> <a href="https://www.home-assistant.io/integrations/template/" rel="noopener" target="_blank">Template entities</a> <a href="https://www.home-assistant.io/docs/configuration/" rel="noopener" target="_blank">Configuration files</a> <a href="https://www.home-assistant.io/docs/configuration/secrets/" rel="noopener" target="_blank">Secrets</a> <a href="https://www.home-assistant.io/integrations/recorder/" rel="noopener" target="_blank">Recorder</a></p>
+<h2 id="10-topic-reference-and-retiring-a-device">10. Topic reference and retiring a device</h2>
+<p>Replace the example gateway ID below with <code>gateway.gateway_id</code> from your API. With <code>MQTT_BASE_TOPIC = &quot;wirelessspd&quot;</code>, the root is <code>wirelessspd/wspd-aabbccddeeff</code>:</p>
+<div class="table-scroll"><table><thead><tr><th>Topic</th><th>Payload/use</th></tr></thead><tbody><tr><td><code>wirelessspd/wspd-aabbccddeeff/availability</code></td><td>Retained <code>online</code> / <code>offline</code> gateway availability.</td></tr><tr><td><code>wirelessspd/wspd-aabbccddeeff/state</code></td><td>Retained gateway counts, uptime and <code>alarm_muted</code> as <code>ON</code>/<code>OFF</code>.</td></tr><tr><td><code>wirelessspd/wspd-aabbccddeeff/spd/1/state</code></td><td>Retained SPD 1 JSON status/freshness/telemetry.</td></tr><tr><td><code>wirelessspd/wspd-aabbccddeeff/command/alarm_muted</code></td><td>Command exactly <code>ON</code> or <code>OFF</code>; <strong>retain OFF</strong> for commands.</td></tr><tr><td><code>homeassistant/device/wspd-aabbccddeeff/config</code></td><td>Retained receiver discovery.</td></tr><tr><td><code>homeassistant/device/wspd-aabbccddeeff_spd_1/config</code></td><td>Retained SPD 1 discovery.</td></tr></tbody></table></div>
+<p>The receiver clears an old retained command before subscribing, resends discovery on reconnect/HA birth and publishes current state before online availability. Entity unique IDs combine gateway identity, SPD ID and metric. Friendly-name changes preserve identity; replacing the receiver hardware changes identity. No firmware-update controls or beacon secrets are published through MQTT.</p>
+<p>To remove a retired SPD, first remove its registration from private config and flash that image so it will not republish discovery. In Home Assistant&#x27;s MQTT integration <strong>Configure → Publish a packet</strong>, enter the <strong>exact retired discovery topic</strong>, leave payload completely empty (not <code>&quot;&quot;</code>, not <code>{}</code>), enable <strong>Retain</strong>, and publish. This deletes the retained discovery and its entities. If an unused device remains with no entities, remove it in Devices. You may similarly clear its exact old state topic with an empty retained payload. For a base-topic change, record and clear only the old receiver&#x27;s exact discovery/state topics. Do not publish deletion messages to <code>#</code>/<code>+</code> wildcards or erase other installations.</p>
+<h2 id="references-and-maintenance">References and maintenance</h2>
+<p>The linked references above are official Home Assistant/Mosquitto sources and are not required to read this saved guide. Menu labels may differ slightly in older Home Assistant versions. Preserve this HTML, the REST YAML, your private receiver config and a Home Assistant backup before an offline installation. The repository&#x27;s canonical guide/examples generate <code>ha_guide.h</code> for the receiver. The described MQTT/REST behavior is covered by host tests; your own Home Assistant instance, network, contact and notification paths still require acceptance checks.</p>
+<p class="foot">This guide and all example code are stored in the receiver. External reference links are optional. Saved HTML remains readable without a network connection.</p>
+</main></body></html>

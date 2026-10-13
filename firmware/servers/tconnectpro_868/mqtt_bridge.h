@@ -32,11 +32,12 @@ class WspdMqttBridge {
  public:
   using RowCallback = void (*)(size_t, WspdMqttSpdSnapshot &);
   using GatewayCallback = void (*)(WspdMqttGatewaySnapshot &);
+  using MuteCallback = void (*)(bool);
 
   WspdMqttBridge(const char *host, uint16_t port, const char *username,
-                 const char *password, const char *baseTopic, uint32_t publishSeconds)
+                 const char *password, const char *baseTopic, uint32_t publishSeconds, MuteCallback muteCallback = nullptr)
       : host_(host), port_(port), username_(username), password_(password),
-        baseTopic_(baseTopic), publishMs_(publishSeconds * 1000UL), mqtt_(transport_) {}
+        baseTopic_(baseTopic), muteCallback_(muteCallback), publishMs_(publishSeconds * 1000UL), mqtt_(transport_) {}
 
   bool begin(const char *gatewayId, const char *firmwareId, const char *ip,
              size_t rowCount, RowCallback rowCallback, GatewayCallback gatewayCallback) {
@@ -49,6 +50,7 @@ class WspdMqttBridge {
     dashboardUrl_ = String("http://") + ip + "/";
     topicRoot_ = String(baseTopic_) + "/" + gatewayId_;
     availabilityTopic_ = topicRoot_ + "/availability";
+    commandTopic_ = topicRoot_ + "/command/alarm_muted";
     rowCount_ = rowCount;
     rowCallback_ = rowCallback;
     gatewayCallback_ = gatewayCallback;
@@ -64,6 +66,16 @@ class WspdMqttBridge {
     mqtt_.setCallback([this](char *topic, uint8_t *payload, unsigned int length) {
       if (!strcmp(topic, "homeassistant/status") && length == 6 &&
           !memcmp(payload, "online", 6)) discoveryRequested_ = true;
+      if (muteCallback_ && !strcmp(topic, commandTopic_.c_str())) {
+        const bool on = length == 2 && !memcmp(payload, "ON", 2);
+        const bool off = length == 3 && !memcmp(payload, "OFF", 3);
+        if (!on && !off) return;
+        // Network-task callbacks only queue an explicit state. The sketch loop
+        // owns alarm state, GPIO, display and log writes.
+        portENTER_CRITICAL(&lock_);
+        if (connected_ && networkReady_ && !paused_) { pendingMute_ = on; mutePending_ = true; }
+        portEXIT_CRITICAL(&lock_);
+      }
     });
     for (size_t i = 0; i < rowCount_; ++i) copyRow(i);
     copyGateway();
@@ -84,6 +96,12 @@ class WspdMqttBridge {
   }
   void loop(uint32_t, bool stationConnected) {
     if (!task_) return;
+    bool apply = false, muted = false;
+    portENTER_CRITICAL(&lock_);
+    if (!stationConnected || paused_ || !connected_) mutePending_ = false;
+    else if (mutePending_) { muted = pendingMute_; apply = true; mutePending_ = false; }
+    portEXIT_CRITICAL(&lock_);
+    if (apply && muteCallback_) muteCallback_(muted);
     // Snapshot exactly one row per call to keep the receiver's work bounded.
     if (rowCount_) {
       copyRow(nextSnapshot_);
@@ -99,9 +117,17 @@ class WspdMqttBridge {
     publishRequested_ = true;
     portEXIT_CRITICAL(&lock_);
   }
+  // Called only by the sketch after web/touch/MQTT changes. Copy the latest
+  // mute state before waking publication, so acknowledgement is authoritative.
+  void notifyMuteStateChanged() {
+    if (!task_) return;
+    copyGateway();
+    portENTER_CRITICAL(&lock_); muteStatePending_ = true; portEXIT_CRITICAL(&lock_);
+  }
   void setPaused(bool paused) {
     portENTER_CRITICAL(&lock_);
     paused_ = paused;
+    if (paused) mutePending_ = false;
     portEXIT_CRITICAL(&lock_);
   }
 
@@ -127,10 +153,11 @@ class WspdMqttBridge {
     char name[97] = {0};
     char status[8] = {0};
   };
-  enum Phase { Idle, Offline, Discovery, States, Online };
+  enum Phase { Idle, Commands, Offline, Discovery, States, Online };
   static constexpr uint16_t MQTT_BUFFER_BYTES = 6144;
   static constexpr uint32_t RECONNECT_MS = 30000UL;
   const char *host_, *username_, *password_, *baseTopic_;
+  MuteCallback muteCallback_;
   uint16_t port_;
   uint32_t publishMs_;
   Transport transport_;
@@ -138,7 +165,8 @@ class WspdMqttBridge {
   TaskHandle_t task_ = nullptr;
   portMUX_TYPE lock_ = portMUX_INITIALIZER_UNLOCKED;
   bool connected_ = false, networkReady_ = false, paused_ = false;
-  bool publishRequested_ = false;
+  bool publishRequested_ = false, muteStatePending_ = false;
+  bool mutePending_ = false, pendingMute_ = false;
   bool discoveryRequested_ = false; // Used only by the MQTT task and its callback.
   bool attempted_ = false;
   uint32_t lastAttemptMs_ = 0, lastCycleMs_ = 0;
@@ -149,7 +177,7 @@ class WspdMqttBridge {
   WspdMqttGatewaySnapshot gateway_;
   RowCallback rowCallback_ = nullptr;
   GatewayCallback gatewayCallback_ = nullptr;
-  String gatewayId_, firmwareId_, dashboardUrl_, topicRoot_, availabilityTopic_;
+  String gatewayId_, firmwareId_, dashboardUrl_, topicRoot_, availabilityTopic_, commandTopic_;
 
   static void boundedText(char *dst, size_t capacity, const char *src) {
     if (!src) src = "";
@@ -195,6 +223,7 @@ class WspdMqttBridge {
   void markConnected(bool value) {
     portENTER_CRITICAL(&lock_);
     connected_ = value;
+    if (!value) mutePending_ = false;
     portEXIT_CRITICAL(&lock_);
   }
   static void taskEntry(void *arg) {
@@ -210,12 +239,10 @@ class WspdMqttBridge {
     return mqtt_.publish(topic.c_str(), payload.c_str(), true);
   }
   void workerStep(uint32_t now) {
-    bool ready, paused, requested;
+    bool ready, paused;
     portENTER_CRITICAL(&lock_);
     ready = networkReady_;
     paused = paused_;
-    requested = publishRequested_;
-    publishRequested_ = false;
     portEXIT_CRITICAL(&lock_);
     if (!ready || paused) {
       if (mqtt_.connected()) {
@@ -235,9 +262,8 @@ class WspdMqttBridge {
       const String clientId = "wspd-" + gatewayId_;
       if (!mqtt_.connect(clientId.c_str(), username_, password_,
                          availabilityTopic_.c_str(), 0, true, "offline")) return;
-      mqtt_.subscribe("homeassistant/status");
       markConnected(true);
-      phase_ = Offline;
+      phase_ = Commands;
       initialCycle_ = true;
       cursor_ = 0;
     }
@@ -247,13 +273,30 @@ class WspdMqttBridge {
       phase_ = Discovery;
       cursor_ = 0;
     }
+    bool requested = false, muteRequested = false;
+    portENTER_CRITICAL(&lock_);
+    if (phase_ == Idle) { requested = publishRequested_; publishRequested_ = false; }
+    if (phase_ == Idle || phase_ == States || phase_ == Online) {
+      muteRequested = muteStatePending_; muteStatePending_ = false;
+    }
+    portEXIT_CRITICAL(&lock_);
     if (phase_ == Idle && (requested || uint32_t(now - lastCycleMs_) >= publishMs_)) {
-      phase_ = States;
-      cursor_ = 0;
+      phase_ = States; cursor_ = 0;
     }
     // At most one discovery/state/availability publication per task iteration.
     bool success = true;
-    if (phase_ == Offline) {
+    if (muteRequested) {
+      // Acknowledge controls promptly even halfway through a large row cycle.
+      // Keep that row cursor and publish at most one message this iteration.
+      success = publishGatewayState();
+    } else if (phase_ == Commands) {
+      // Remove obsolete retained commands BEFORE subscribing. HA commands use
+      // retain:false; stale mute messages must not replay after reconnect.
+      success = publish(commandTopic_, "");
+      if (success) success = mqtt_.subscribe("homeassistant/status");
+      if (success && muteCallback_) success = mqtt_.subscribe(commandTopic_.c_str());
+      if (success) phase_ = Offline;
+    } else if (phase_ == Offline) {
       success = publish(availabilityTopic_, "offline");
       if (success) phase_ = Discovery;
     } else if (phase_ == Discovery) {
@@ -357,6 +400,12 @@ class WspdMqttBridge {
     out += ",\"unknown\":" + sensor(gatewayId_ + "_unknown", "Unknown SPDs", "unknown", topic, nullptr, nullptr, nullptr, true);
     out += ",\"uptime\":" + sensor(gatewayId_ + "_uptime", "Uptime", "uptime_seconds", topic, nullptr, "s", "duration", true);
     out += ",\"muted\":" + sensor(gatewayId_ + "_muted", "Alarm muted", "alarm_muted", topic, nullptr, nullptr, nullptr, true, true);
+    if (muteCallback_) {
+      out += ",\"alarm_mute\":{\"platform\":\"switch\",\"name\":\"Alarm muted\",\"unique_id\":" + quoted((gatewayId_ + "_alarm_mute").c_str());
+      out += ",\"command_topic\":" + quoted(commandTopic_.c_str()) + ",\"state_topic\":" + quoted(topic.c_str());
+      out += ",\"value_template\":\"{{ value_json.alarm_muted }}\",\"payload_on\":\"ON\",\"payload_off\":\"OFF\"";
+      out += ",\"retain\":false,\"optimistic\":false,\"qos\":0,\"icon\":\"mdi:volume-off\",\"availability_mode\":\"all\",\"availability\":" + availability(topic) + "}";
+    }
     return publish("homeassistant/device/" + gatewayId_ + "/config", out + "}}");
   }
   bool publishRowState(size_t index) {
