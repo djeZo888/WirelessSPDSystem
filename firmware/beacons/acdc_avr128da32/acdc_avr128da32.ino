@@ -252,7 +252,7 @@ static volatile bool greenPulseActive = false;
 static volatile uint16_t greenPulseEndTick = 0;
 static volatile uint16_t nextGreenHeartbeatTick = 0;
 constexpr uint16_t GREEN_HEARTBEAT_TICKS = 30U * AcDcSleep::TICKS_PER_SECOND;
-constexpr uint16_t GREEN_ON_TICKS = AcDcSleep::TICKS_PER_SECOND / 2U;
+constexpr uint16_t GREEN_ON_TICKS = AcDcSleep::TICKS_PER_SECOND;
 static uint8_t lastSpdStatus = 1;
 static bool    haveLastGoodTemp = false;
 static int8_t  lastGoodTempC = 25;
@@ -411,7 +411,7 @@ static void startGreenHeartbeat(uint16_t now) {
     nextGreenHeartbeatTick = (uint16_t)(nextGreenHeartbeatTick + GREEN_HEARTBEAT_TICKS);
   } while (AcDcSleep::reached(now, nextGreenHeartbeatTick));
 
-  // Arm the 0.5-second turn-off now. This also works when called from the RTC
+  // Arm the one-second turn-off now. This also works when called from the RTC
   // ISR during a relatively slow foreground EEPROM commit or transmission.
   RTC.INTCTRL = 0;
   RTC.INTFLAGS = RTC_CMP_bm | RTC_OVF_bm;

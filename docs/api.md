@@ -27,10 +27,12 @@ the dashboard labels them as errors. Use status and availability rules from the
 | --- | --- |
 | `GET /` | Dashboard. |
 | `GET /api/v1/get` | One JSON snapshot; `Cache-Control: no-store`. |
+| `GET /api/v1/get?pretty=1` | Same full snapshot, indented **text/plain** JSON for a new browser tab. |
+| `GET /api/v1/logs` | Bounded current-session event page; [fields and cursors](session-logs.md). |
 | `GET /healthz` | Web-handler liveness: `{"status":"ok"}`; not a certificate of fresh SPD readings. |
 | `POST /api/v1/mute?value=1` | Mute relay; `value=0` unmutes, omitted value toggles. Visual/status warnings continue. |
 | `POST /api/v1/firmware` | Authenticated multipart update; [upload contract and recovery](network-updates.md). |
 
 Reads and mute retain the existing trusted-network access model; firmware updates
-use a separate private login and request header. No credentials or beacon keys
+use a separate private Bearer token and request header. No credentials or beacon keys
 are returned by the API. This receiver provides HTTP, without TLS or CORS access.

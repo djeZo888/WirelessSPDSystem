@@ -6,8 +6,12 @@ Compile-only checks use synthetic credentials:
 | --- | ---: | ---: | --- |
 | AC-DC AVR128DA32 · sleep, LED mode 1 | 42,636 / 131,072 bytes | 1,543 / 16,384 bytes | Passed |
 | Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
-| T Connect Pro v0.2.1 · core 3.3.12, 127 wireless + local | 1,108,426 / 3,145,728 bytes | 191,356 / 327,680 bytes | Passed |
-| T Connect Pro v0.2.1 · core 2.0.14 compatibility | 934,861 / 3,145,728 bytes | 187,968 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.2 · core 3.3.12, 127 wireless + local | 1,135,094 / 3,145,728 bytes | 199,924 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.2 · core 2.0.14 compatibility | 965,641 / 3,145,728 bytes | 196,520 / 327,680 bytes | Passed |
+
+The receiver also allocates its session log dynamically in PSRAM: **2 MiB /
+4096 entries** by default, in addition to the LCD framebuffer. Global RAM in the
+table excludes these dynamic buffers.
 
 Pinned cores, libraries and board options are listed in the flashing guide and
 each project's `build-options.json`. Beacon
@@ -40,14 +44,21 @@ AddressSanitizer/UBSan check host memory access. Host shims do not verify physic
 performance at scale.
 Pinned dependency code emits some compiler warnings; the builds still pass.
 
+`python3 tests/check_server_logs.py` exercises 17,000 writes into the actual
+2 MiB / 4096-record ring, overwrite bounds, safe UTF-8 clipping/replacement,
+64-bit boot times, date reconstruction and JSON formatting. API checks also
+exercise streamed log paging, malformed cursors and plaintext pretty JSON;
+dashboard checks cover older/live browsing, restart/overflow notices and clock
+synchronization. All run in CI.
+
 `python3 tests/check_server_ota.py` exercises the actual handler with OpenSSL-backed
-host SHA-256 adapters for MbedTLS 2/3: 72 scenarios each, covering authentication,
+host SHA-256 adapters for MbedTLS 2/3: 92 scenarios each, covering authentication,
 CSRF, image/hash/length rejection, cancellation, writes/finalization failures,
 multiple files, timeout rollover, immediate early-rejection connection closure
 and activation/restart order. Response checks model retained headers from a
 preceding API request and require one correct Content-Length and authentication
-challenge. Another 41 checks
-exercise the production validator's OTA credentials and MQTT configuration limits. Host shims do not
+challenge. Another 48 checks
+exercise the production validator's OTA token and MQTT configuration limits. Host shims do not
 verify physical flash/bootloader behavior or real HTTP multipart parsing.
 `python3 tests/check_server_mqtt.py` checks discovery, retained full-list telemetry,
 availability, broker failure/backoff, Home Assistant birth and OTA pause across
@@ -74,6 +85,22 @@ Independent USB reads of OTA metadata confirmed app0 → app1 and sequence 1 →
 with the new image marked VALID. Every byte of the application read from app1
 matched the network-uploaded image. These read operations reset the receiver
 separately from the earlier successful network-update reboot.
+A subsequent private three-beacon **v0.2.2** build (1,129,554 bytes flash /
+62,884 bytes global RAM) was installed over the network. The receiver allocated
+**2,097,152 bytes of PSRAM / 4096 log records**, synchronized NTP time and
+reconstructed startup dates. Live log cursors/bounds, dated boot/packet events,
+MUTE/UNMUTE actions, exact served HTML and the complete pretty plaintext API
+passed. Desktop and 320/390-pixel browser views passed without overflow or script
+errors; the footer opened JSON in a new tab. A second full update using the new
+Bearer token returned 202 and rebooted successfully. The session ID changed and
+old logs cleared. Both beacons again supplied at least three accepted reports
+with increasing nonces and 0% observed loss. Seven live negative cases rejected
+old Basic auth, missing/wrong tokens, early unauthenticated multipart data,
+missing request header, oversized size and bad SHA-256; monitoring resumed with
+no unplanned restart. Private images/configuration and bench evidence are not
+published. This release was verified by network activation/boot, without another
+USB image readback.
+
 MQTT/Home Assistant deployment, battery hardware and maximum-list performance
 remain untested on this bench.
 
@@ -116,7 +143,7 @@ The local programming station passed 25 offline checks and its 4 MHz testing
 compile. See [preproduction validation](../firmware/beacons/preproduction-validation.json).
 Private deployment keys, target backups and firmware images are excluded.
 
-AC-DC sleep checks (`python3 tests/check_acdc_sleep.py`) passed **253,960** native
+AC-DC sleep checks (`python3 tests/check_acdc_sleep.py`) passed **253,962** native
 assertions across all six LED/timing combinations with AddressSanitizer/UBSan.
 They execute the actual scheduler, main loop, contact/RTC ISRs, packet/TX helpers
 and peripheral shutdown paths using offline I/O shims. All three LED modes also
@@ -125,4 +152,6 @@ compiled on AVR; the station's low-power preproduction build passed at
 The packet/nonce/fuse tests and all three compatibility builds passed.
 See [sleep validation evidence](../firmware/beacons/sleep-validation.json) and
 [power management](power-management.md). Physical wake timing, sleep current,
-receiver reception and power-cycle behavior for this revision remain open.
+LED waveform and power-cycle behavior for this revision remain open. The
+one-second heartbeat image was verified on preproduction beacon 2 with its
+existing EEPROM nonce journal retained.

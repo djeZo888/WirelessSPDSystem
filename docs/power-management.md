@@ -51,11 +51,11 @@ contact edge from being serviced between the final check and sleeping.
 | Value | Behavior |
 | --- | --- |
 | **0** | Earlier steady green power / red FAIL indications; yellow throughout TX. These LEDs continue consuming power during MCU sleep. |
-| **1**, default | Green heartbeat at startup and every **30 seconds**, illuminated for about **0.5 seconds**. Red stays **continuously on while the contact indicates FAIL**, and turns off on OK. Yellow starts with TX and is turned off at the first check after 50 ms or when TX ends. |
+| **1**, default | Green heartbeat at startup and every **30 seconds**, illuminated for about **1 second**. Red stays **continuously on while the contact indicates FAIL**, and turns off on OK. Yellow starts with TX and is turned off at the first check after 50 ms or when TX ends. |
 | **2** | Normal LEDs disabled, including radio initialization indication. |
 
 The heartbeat runs independently of reports and contact changes. The MCU wakes
-briefly to switch green on/off and sleeps during the illuminated half-second;
+briefly to switch green on/off and sleeps during the illuminated second;
 the GPIO output remains latched during STANDBY. Heartbeat wakeups do not sample
 the ADC, wake the radio, allocate a nonce or reschedule the next report. Red
 remains lit during MCU sleep when the SPD is faulty. Thus LED mode 1 adds two
@@ -70,7 +70,7 @@ Several loads in the existing schematic cannot be switched off by firmware:
 | --- | --- |
 | SPD input's external 10 kΩ pull-up, contact closed | Approximately **330 µA**. |
 | 10 kΩ pull-up plus connected 10 kΩ NTC at 25°C | Approximately **165 µA**, varying with temperature. An unplugged NTC does not create this divider load. |
-| 680 Ω LED resistors | Steady LEDs draw milliamps, depending on LED forward voltage. Mode 1 limits green to a **1/60 duty cycle**, while red still draws continuously during a fault. Mode 2 disables normal LED loads. |
+| 680 Ω LED resistors | Steady LEDs draw milliamps, depending on LED forward voltage. Mode 1 limits green to a **1/30 duty cycle**, while red still draws continuously during a fault. Mode 2 disables normal LED loads. |
 | IRM-02 converter | Datasheet specifies no-load input power **less than 75 mW**. This is an upper specification, not a measured fixed floor or a 3.3 V output current. |
 
 The Wio-SX1262 module datasheet lists **1.62 µA** sleep current. This module figure
@@ -93,8 +93,11 @@ hardware wake timing. After flashing with regulated 3.3 V power and EEPROM
 retention, measure the long-idle 3.3 V load, verify regular wake/TX and receiver
 acceptance, open/close the contact while asleep, check FAIL repeats, and verify
 nonce progression after a power cycle. The earlier successful flash/LED tests
-apply to the earlier preproduction build; this sleep revision has not yet been
-flashed or physically qualified.
+apply to their recorded builds. The current one-second heartbeat was flashed
+to preproduction beacon 2 with verified flash readback and EEPROM retention.
+The receiver accepted authenticated packets with nonces beyond the retained
+journal after this reflash. Its LED waveform and sleep current still require
+measurement.
 
 References: [AVR128DA datasheet](https://ww1.microchip.com/downloads/aemDocuments/documents/MCU08/ProductDocuments/DataSheets/AVR128DA28-32-48-64-Data-Sheet-DS40002183.pdf),
 [DxCore pin interrupts](https://github.com/SpenceKonde/DxCore/blob/1.6.2/megaavr/extras/Ref_PinInterrupts.md),

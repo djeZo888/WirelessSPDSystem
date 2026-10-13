@@ -44,6 +44,9 @@ jobs:
       - name: Check responsive dashboard and update UI
         if: matrix.target == 'server'
         run: python3 tests/check_server_dashboard.py
+      - name: Check session log buffer and timestamps
+        if: matrix.target == 'server'
+        run: python3 tests/check_server_logs.py
       - name: Check authenticated OTA lifecycle
         if: matrix.target == 'server'
         run: python3 tests/check_server_ota.py

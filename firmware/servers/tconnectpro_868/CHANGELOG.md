@@ -3,6 +3,23 @@
 Receiver versions are independent of beacon HW/FW packet fields and repository
 releases. The LCD displays the receiver version with the `-tconnpro` suffix.
 
+## v0.2.2 — 2026-10-13
+
+- Adds a fourth **Logs** tab with dated startup, packet, rejection, alarm,
+  network and OTA events. Uses a configurable PSRAM circular buffer (2 MiB /
+  4096 entries by default), bounded HTTP pages and older-entry browsing.
+- Adds network clock synchronization; reconstructs startup dates after sync,
+  shows time since boot before sync, and uses local **24-hour** browser times.
+- Replaces OTA username/password with one configured **32–128 letter token**
+  using Bearer authentication. Keeps image, SHA-256, request and slot checks.
+- Shows RSSI and SNR together, keeps **MUTE/UNMUTE** immediately left of Refresh
+  on every tab, and includes the date in the last-refresh indicator.
+- Links the complete, pretty-printed plaintext JSON API from the footer.
+- Records controlled OTA restart before reboot. Logs remain session-only and
+  are cleared on restart; abrupt power loss cannot produce a shutdown event.
+- Displays **v0.2.2-tconnpro** across LCD, dashboard and API. Beacon firmware
+  remains **1**; its AC-DC green heartbeat now lasts **one second every 30 seconds**.
+
 ## v0.2.1 — 2026-10-13
 
 - Fixes early OTA rejection responses that could reuse headers from a preceding

@@ -5,6 +5,7 @@
 #include <esp_ota_ops.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/version.h>
+#include <stdio.h>
 #include "ota_image.h"
 
 class WspdWebServer : public WebServer {
@@ -31,8 +32,9 @@ public:
 class WspdWebOta {
 public:
   using Maintenance = void (*)(bool);
-  WspdWebOta(WspdWebServer &server, bool enabled, const char *user, const char *password, Maintenance maintenance)
-      : server_(server), enabled_(enabled), user_(user), password_(password), maintenance_(maintenance) {}
+  using Log = void (*)(const char *);
+  WspdWebOta(WspdWebServer &server, bool enabled, const char *token, Maintenance maintenance, Log log = nullptr)
+      : server_(server), enabled_(enabled), token_(token), maintenance_(maintenance), log_(log) {}
   bool enabled() const { return enabled_; }
   bool busy() const { return active_ || restartPending_; }
   size_t slotSize() const {
@@ -45,15 +47,20 @@ public:
   }
   void loop(uint32_t now) {
     if (active_ && uint32_t(now - lastChunk_) > 20000UL) { fail(400, "timeout", "Upload timed out."); clear(); }
-    if (restartPending_ && uint32_t(now - restartStarted_) >= 1500UL) ESP.restart();
+    if (restartPending_ && uint32_t(now - restartStarted_) >= 1500UL) {
+      if (!restartLogged_) { log("Restarting receiver after firmware update."); restartLogged_ = true; }
+      ESP.restart();
+    }
   }
 private:
   WspdWebServer &server_;
   bool enabled_;
-  const char *user_, *password_;
+  const char *token_;
   Maintenance maintenance_;
+  Log log_;
   bool active_ = false, hadFile_ = false, complete_ = false, restartPending_ = false, hashOpen_ = false;
   bool rejectedConnection_ = false;
+  bool restartLogged_ = false;
   size_t expected_ = 0, received_ = 0, prefixUsed_ = 0;
   uint32_t lastChunk_ = 0, restartStarted_ = 0;
   uint8_t prefix_[WSPD_OTA_PREFIX_SIZE], wanted_[32];
@@ -61,16 +68,35 @@ private:
   WspdOtaMarker marker_;
   int errorCode_ = 0;
   const char *error_ = "", *message_ = "";
-  bool authorized() { return server_.authenticate(user_, password_); }
+  void log(const char *message) { if (log_) log_(message); }
+  bool authorized() {
+    const String authorization = server_.header("Authorization");
+    const size_t tokenLength = token_ ? strlen(token_) : 0;
+    constexpr size_t prefixLength = 7, maximumLength = 128;
+    if (tokenLength < 32 || tokenLength > maximumLength || authorization.length() < prefixLength ||
+        strncmp(authorization.c_str(), "Bearer ", prefixLength) != 0) return false;
+    // Fixed-length, padded comparison. Include the complete supplied length so
+    // matching prefixes, trailing bytes and shorter tokens never authenticate.
+    volatile size_t difference = authorization.length() ^ (prefixLength + tokenLength);
+    for (size_t i = 0; i < maximumLength; ++i) {
+      const uint8_t wanted = i < tokenLength ? uint8_t(token_[i]) : 0;
+      const uint8_t supplied = prefixLength + i < authorization.length() ? uint8_t(authorization[prefixLength + i]) : 0;
+      difference |= size_t(wanted ^ supplied);
+    }
+    return difference == 0;
+  }
   bool requestAllowed() {
     if (!enabled_) { fail(403, "disabled", "Network firmware updates are disabled."); return false; }
-    if (!authorized()) { fail(401, "unauthorized", "Firmware update credentials are required."); return false; }
+    if (!authorized()) { fail(401, "unauthorized", "A firmware update token is required."); return false; }
     if (server_.header("X-WSPD-Update") != "1") { fail(400, "request_header", "X-WSPD-Update: 1 is required."); return false; }
     return true;
   }
   void closeHash() { if (hashOpen_) { mbedtls_sha256_free(&hash_); hashOpen_ = false; } }
   void fail(int code, const char *error, const char *message) {
-    if (!errorCode_) { errorCode_ = code; error_ = error; message_ = message; }
+    if (!errorCode_) {
+      errorCode_ = code; error_ = error; message_ = message;
+      char event[80]; snprintf(event, sizeof(event), "Update failed: %s.", error); log(event);
+    }
     if (active_) { Update.abort(); active_ = false; maintenance_(false); }
     closeHash(); complete_ = false;
   }
@@ -83,7 +109,7 @@ private:
     server_.send(code, "application/json; charset=utf-8", body);
   }
   void errorReply() {
-    if (errorCode_ == 401) server_.sendHeader("WWW-Authenticate", "Basic realm=\"WirelessSPDSystem firmware\"");
+    if (errorCode_ == 401) server_.sendHeader("WWW-Authenticate", "Bearer realm=\"WirelessSPDSystem firmware\"");
     reply(errorCode_, String("{\"error\":\"") + error_ + "\",\"message\":\"" + message_ + "\"}");
   }
   void rejectUpload() {
@@ -126,6 +152,7 @@ private:
       }
       if (!Update.begin(expected_, U_FLASH)) { fail(500, "begin", "Could not open the inactive OTA slot."); rejectUpload(); return; }
       active_ = true; maintenance_(true); lastChunk_ = millis();
+      char event[80]; snprintf(event, sizeof(event), "Upload started: %lu bytes.", (unsigned long)expected_); log(event);
       mbedtls_sha256_init(&hash_); hashOpen_ = true;
 #if MBEDTLS_VERSION_MAJOR >= 3
       if (mbedtls_sha256_starts(&hash_, 0) != 0) fail(500, "hash", "SHA-256 initialization failed.");
@@ -191,6 +218,7 @@ private:
       errorReply(); clear(); return;
     }
     active_ = false; restartPending_ = true; restartStarted_ = millis();
+    log("Firmware verified; restart queued.");
     reply(202, "{\"status\":\"ok\",\"message\":\"Firmware verified; restarting.\"}");
   }
 };

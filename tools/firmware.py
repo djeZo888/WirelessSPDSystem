@@ -82,7 +82,7 @@ def validation_config(sketch, server):
         content = content.replace("0x00000000UL", "0x7C9E4A21UL")
         content = content.replace('"CHANGE_ME_AP_PASSWORD"', '"validation-only-ap"')
         content = content.replace("OTA_ENABLED = false", "OTA_ENABLED = true")
-        content = content.replace('OTA_PASSWORD = ""', 'OTA_PASSWORD = "validation-only-update-password"')
+        content = content.replace('OTA_TOKEN = ""', 'OTA_TOKEN = "ValidationOnlyUpdateTokenAbCdEfGhIjKlMn"')
         content = content.replace('MQTT_HOST = ""', 'MQTT_HOST = "127.0.0.1"')
         # Exercise the largest addressable list, including a local row and
         # multiple LCD pages. These synthetic credentials are never flashed.
