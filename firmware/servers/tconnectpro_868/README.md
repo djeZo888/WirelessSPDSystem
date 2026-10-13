@@ -6,7 +6,7 @@ PSRAM, 868 MHz SX1262, ST7796 LCD and CST226SE touch. It accepts both
 [battery](../../beacons/battery_avr128db32) beacon firmware using the
 [20-byte authenticated protocol](../../../docs/protocol.md). The [API reference](../../../docs/api.md) documents the full-list response and controls.
 
-Receiver firmware is **v0.2.1**, shown on the LCD as **v0.2.1-tconnpro**.
+Receiver firmware is **v0.2.2**, shown on the LCD as **v0.2.2-tconnpro**.
 See the [receiver changelog](CHANGELOG.md). This version is separate from beacon
 HW/FW fields in LoRa packets and the repository's `v0.1.0` release.
 
@@ -19,7 +19,11 @@ dashboard cover all configured SPDs, including those on another LCD page.
 The first page interval starts after boot completes.
 
 The web dashboard adapts to phones and desktops, with status summaries, search,
-filters and expandable diagnostics. See [Home Assistant setup](../../../docs/home-assistant.md)
+filters and expandable diagnostics. RSSI and SNR appear together. A persistent
+MUTE/UNMUTE button controls alarm output from every tab; refresh timestamps
+include date and 24-hour time. **Logs** shows startup, packet and operational
+events from the current boot; see [session logging](../../../docs/session-logs.md).
+The footer opens the full API as readable JSON in a new tab. See [Home Assistant setup](../../../docs/home-assistant.md)
 for MQTT discovery or a REST example, and [network firmware updates](../../../docs/network-updates.md)
 for authenticated browser uploads after the first USB installation.
 
@@ -48,7 +52,8 @@ the `.ino` does not need editing:
 | `SPD_LOCAL_ID` | Leave **-1** to disable the local input, or choose an unused ID **0–127**. ID 0 is available only for the local contact, allowing 128 total rows. |
 | `DISPLAY_PAGE_SECONDS` | Seconds on each LCD page: **1–3600**, default **5**. The page size stays at eight rows. |
 | `DISPLAY_PERIODIC_REFRESH_MS`, `TOUCH_*_MS` | Optional LCD refresh and touch timing adjustments; keep the example defaults unless needed. |
-| `OTA_ENABLED`, `OTA_USERNAME`, `OTA_PASSWORD` | Network updates default to disabled. When enabled, use a 1–32 nonspace ASCII username without a colon and a private 12–64 printable ASCII password. |
+| `OTA_ENABLED`, `OTA_TOKEN` | Updates default to disabled. When enabled, configure a private **32–128 letter** token (`A–Z`, `a–z`); no username. |
+| `SESSION_LOG_BYTES`, `NTP_SERVER` | Default **2 MiB** PSRAM session log; configurable **64 KiB–4 MiB**. NTP supplies dates; browser displays local 24-hour time. Empty NTP server disables clock sync. |
 | `MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME`, `MQTT_PASSWORD` | Optional Home Assistant broker on the station LAN. An empty host disables MQTT; port 1–65535, default 1883. |
 | `MQTT_BASE_TOPIC`, `MQTT_PUBLISH_SECONDS` | Discovery/state root (1–64 bytes, no `+` or `#`); publish interval 1–3600 seconds, default 10. |
 | `CONFIGURED` | Set to **true** after completing the configuration. |
@@ -66,7 +71,7 @@ a time. Existing configs must remove `LORA_BW_KHZ`, `LORA_CR`, `LORA_SYNCWORD`,
 
 When upgrading, add the new OTA and MQTT fields from `config.example.h` to
 private `config.h`, preserving your Wi-Fi credentials, beacon list and display
-settings. Keep updates disabled until their private login is configured. These settings are applied when compiling; rebuild
+settings. Replace the former OTA username/password fields with `OTA_TOKEN` and add the log/clock settings from the example. Keep updates disabled until a private token is configured. These settings are applied when compiling; rebuild
 and flash after changing the page interval.
 
 Connect the board's ESP32 USB port using a **data cable**. Find its port, build

@@ -16,11 +16,15 @@ def function(source, name):
                       name + r"\([^;{]*\)\s*\{", source)
     if not match:
         raise RuntimeError(f"Cannot find firmware function: {name}")
-    at, depth = match.end(), 1
-    while depth:
-        depth += (source[at] == "{") - (source[at] == "}")
-        at += 1
-    return source[match.start():at]
+    depth = 1
+    tokens = re.finditer(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//[^\n]*|/\*.*?\*/|[{}]', source[match.end():], re.S)
+    for token in tokens:
+        if token.group() not in ("{", "}"):
+            continue
+        depth += 1 if token.group() == "{" else -1
+        if not depth:
+            return source[match.start():match.end() + token.end()]
+    raise RuntimeError(f"Unclosed function: {name}")
 
 
 SHIMS = r'''
@@ -28,6 +32,9 @@ SHIMS = r'''
 #include "version.h"
 #include "config_types.h"
 #include "ota_image.h"
+#include "session_log.h"
+#include "json_format.h"
+#include <map>
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -82,6 +89,10 @@ struct MqttShim {
   bool connected() const { return false; }
 } mqttBridge;
 constexpr uint16_t BLACK = 0;
+constexpr size_t CONTENT_LENGTH_UNKNOWN = size_t(-1);
+WspdSessionLog sessionLog; WspdSessionLog::Record logRecords[8];
+const char *sessionBootId = "test-boot"; bool sessionLogPsram = false;
+void sessionLogf(const char *, ...) {}
 constexpr int HTTP_GET = 0, HTTP_POST = 1;
 SpdDisplayPages displayPages(SPD_TOTAL_COUNT, 5000UL);
 uint32_t millis() { return nowMs; }
@@ -95,7 +106,7 @@ struct ServerShim {
   std::vector<Route> routes;
   void (*notFound)() = nullptr;
   bool started = false, valueProvided = false;
-  String value;
+  String value; std::map<String, String> query;
   unsigned sends = 0, noStoreHeaders = 0;
   unsigned headerCollections = 0;
   int status = 0;
@@ -114,11 +125,13 @@ struct ServerShim {
   void on(const char *path, int method, void (*handler)()) { routes.push_back({path, method, handler}); }
   void onNotFound(void (*handler)()) { notFound = handler; }
   void begin() { started = true; }
-  bool hasArg(const char *name) { return valueProvided && String(name) == "value"; }
-  String arg(const char *name) { assert(hasArg(name)); return value; }
+  bool hasArg(const char *name) { return query.count(String(name)); }
+  String arg(const char *name) { assert(hasArg(name)); return query[String(name)]; }
+  void setContentLength(size_t length) { assert(length == CONTENT_LENGTH_UNKNOWN); }
+  void sendContent(const String &data) { body += data; }
   void dispatch(const char *path, int method, const char *argument = nullptr) {
     assert(started && notFound);
-    valueProvided = (argument != nullptr); value = argument ? argument : "";
+    query.clear(); if (argument) query["value"] = argument;
     for (const auto &route : routes) {
       if (route.path == path && route.method == method) { route.handler(); return; }
     }
@@ -181,6 +194,23 @@ int main() {
       assert(displayPages.advance(static_cast<uint32_t>((page + 1) * 5000)));
   }
   assert(displayPages.pageIndex() == 0);
+  // Pretty response is plaintext and preserves the complete existing JSON data.
+  server.query.clear(); server.query["pretty"] = "1"; handleApiGet();
+  assert(server.contentType == "text/plain; charset=utf-8" && server.body.find('\n') != String::npos);
+  std::cout << "PRETTY " << jsonEscape(server.body.c_str()) << '\n';
+  sessionLog.begin(logRecords, 8);
+  for (unsigned i = 1; i <= 12; ++i) sessionLog.append(1000ULL * i, i == 12 ? "Packet \"quoted\" \\ raw" : "Boot step");
+  auto logs = [](const std::map<String, String> &query) { server.query = query; handleLogs(); assert(server.status == 200); std::cout << "LOG " << server.body << '\n'; };
+  logs({{"tail", "1"}, {"limit", "3"}});
+  logs({{"before", "10"}, {"limit", "3"}});
+  logs({{"after", "0"}, {"limit", "3"}});
+  sessionLog.syncClock(10000, 1800000000000ULL);
+  logs({{"after", "9"}});
+  logs({{"after", "18446744073709551615"}});
+  logs({{"before", "0"}});
+  for (auto query : {std::map<String, String>{{"limit", "101"}}, {{"limit", "0"}}, {{"after", "-1"}}, {{"before", "18446744073709551616"}}, {{"after", "1"}, {"before", "2"}}, {{"tail", "0"}}}) {
+    server.query = query; handleLogs(); assert(server.status == 400 && server.body.find("query") != String::npos);
+  }
 }
 '''
 
@@ -189,8 +219,8 @@ int main() {
 def verify_response(payload, wireless, local):
     expected_ids = ([0] if local else []) + list(range(1, wireless + 1))
     rows = payload["spds"]
-    assert payload["gateway"]["server_version"] == "v0.2.1"
-    assert payload["gateway"]["firmware_id"] == "v0.2.1-tconnpro"
+    assert payload["gateway"]["server_version"] == "v0.2.2"
+    assert payload["gateway"]["firmware_id"] == "v0.2.2-tconnpro"
     assert payload["gateway"]["gateway_id"] == "wspd-test"
     assert payload["gateway"]["mqtt"] == {"enabled": False, "connected": False}
     assert payload["gateway"]["ota"] == {
@@ -246,7 +276,7 @@ def main():
                  "isFreshBatteryLow", "effectiveStatusText", "effectiveLocalStatusText",
                  "isLocalFreshFail", "currentAlarmKind", "alarmKindText", "jsonEscape",
                  "appendLocalSpdJson", "appendWirelessSpdJson", "buildApiJson", "sendJson",
-                 "handleIndex", "handleApiGet", "handleMute", "handleHealthz", "setupWebServer"]:
+                 "handleIndex", "handleApiGet", "handleMute", "logDecimal", "handleLogs", "handleHealthz", "setupWebServer"]:
         body += function(source, name) + "\n"
     body += CHECKS
     variants = [(count, local) for count in (1, 8, 9, 17, 24, 127) for local in (0, 1)]
@@ -262,11 +292,23 @@ def main():
                             "-I", str(SERVER), f"-DWIRELESS_COUNT={wireless}", f"-DHAS_LOCAL={local}",
                             str(driver), "-o", str(binary)], check=True)
             result = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
-            responses = [json.loads(line) for line in result.stdout.splitlines()]
+            lines = result.stdout.splitlines()
+            responses = [json.loads(line) for line in lines if not line.startswith(("LOG ", "PRETTY "))]
+            pretty = [json.loads('"' + line[7:] + '"') for line in lines if line.startswith("PRETTY ")]
+            assert len(pretty) == 1 and json.loads(pretty[0]) == responses[0]
+            logs = [json.loads(line[4:]) for line in lines if line.startswith("LOG ")]
+            assert len(logs) == 6
+            assert [[e["seq"] for e in page["entries"]] for page in logs] == [[10,11,12],[7,8,9],[5,6,7],[10,11,12],[],[]]
+            assert all(page["dropped"] == 4 and page["capacity"] == 8 and page["bytes"] == 4096 for page in logs)
+            assert all(e["unix_ms"] is None for e in logs[0]["entries"])
+            assert logs[3]["clock_synced"] and logs[3]["entries"][0]["unix_ms"] == 1800000000000
+            assert logs[0]["entries"][-1]["message"] == 'Packet "quoted" \\ raw'
+            assert logs[1]["has_more"] and logs[2]["has_more"] and not logs[0]["has_more"]
             assert len(responses) == (wireless + local + 7) // 8
             for response in responses:
                 verify_response(response, wireless, local)
     print(f"PASS: {len(variants)} API configurations, up to 127 wireless SPDs plus local ID 0.")
+    print("Verified paginated log cursors, overflow metadata, timestamps, and plaintext pretty JSON equivalence.")
     print("Verified one complete GET response on every LCD page, JSON telemetry/summary, integration diagnostics and mute routing.")
     print("Verified obsolete route returns 404 without changing state and removed configuration/header/UI are absent.")
     print("Host String and HTTP shims do not qualify physical Wi-Fi or maximum-device performance.")

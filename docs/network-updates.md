@@ -11,14 +11,21 @@ Copy the new settings from `config.example.h` into private `config.h`:
 
 ```cpp
 constexpr auto OTA_ENABLED = true;
-static const char *OTA_USERNAME = "admin";
-static const char *OTA_PASSWORD = "YOUR_PRIVATE_UPDATE_PASSWORD"; // 12–64 characters
+static const char *OTA_TOKEN = ""; // fill with 32–128 letters: A–Z and a–z
 ```
 
-Choose a private printable ASCII password independent of the AP password. The
-username is 1–32 nonspace ASCII characters without a colon. Updates default to disabled; monitoring and API reads
-need no update login. Use the receiver on a trusted LAN/AP. HTTP Basic credentials
-and binaries are not TLS encrypted; do not expose the update endpoint to the Internet.
+Generate a random private token, for example 64 letters, and put it in `config.h`:
+
+```sh
+python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters) for _ in range(64)))'
+```
+
+No username is required. Updates default to disabled; monitoring and API reads
+need no update token. Use a trusted LAN/AP: HTTP tokens and binaries are not TLS
+encrypted. Existing configurations must replace the former username/password
+fields with `OTA_TOKEN`. An older installed image still uses its existing update
+credentials for the one upload that installs this release; subsequent uploads
+use the token compiled into the new image.
 
 Build for the same board/partition settings with your complete private configuration.
 Use the application's **`tconnectpro_868.ino.bin`** file: not the bootloader,
@@ -28,27 +35,30 @@ contains your Wi-Fi, beacon and update credentials, so keep it private.
 ## Upload
 
 Open the receiver dashboard → **Firmware**, select the application image and
-enter the update username/password. The browser computes SHA-256, shows progress
+enter only the configured update token. The browser computes SHA-256, shows progress
 and waits for the receiver to reconnect. The new image's compiled configuration
 replaces the previous one; preserve your beacon IDs/keys and network credentials.
-Keep `OTA_ENABLED` and the update login configured in the new image if you want
+Keep `OTA_ENABLED` and `OTA_TOKEN` configured in the new image if you want
 subsequent network updates. Changing station Wi-Fi or the AP name may require
 reconnecting to the new network.
 
 The authenticated `POST /api/v1/firmware` accepts multipart fields **`size`** and
-**`sha256`**, both before **`firmware`**, plus **`X-WSPD-Update: 1`**. For scripts:
+**`sha256`**, both before **`firmware`**, plus **`X-WSPD-Update: 1`** and **`Authorization: Bearer TOKEN`**. Keep tokens
+out of shell history/process arguments. For scripts, place that header in a
+private file with mode 600, then use curl's header-file support:
 
 ```sh
 IMAGE=/private/path/tconnectpro_868.ino.bin
 SIZE=$(wc -c < "$IMAGE" | tr -d ' ')
 SHA256=$(shasum -a 256 "$IMAGE" | cut -d ' ' -f 1)
-curl --user admin --header 'X-WSPD-Update: 1' \
+curl --header @/private/path/ota-header.txt --header 'X-WSPD-Update: 1' \
   --form "size=$SIZE" --form "sha256=$SHA256" \
   --form "firmware=@$IMAGE;type=application/octet-stream" \
   http://RECEIVER_IP/api/v1/firmware
 ```
 
-`curl` prompts for the password. Success is **202** with `status: "ok"`; the
+The header file contains one line: `Authorization: Bearer YOUR_TOKEN`. Never
+commit it. Success is **202** with `status: "ok"`; the
 receiver restarts after sending its response. Invalid credentials, wrong image,
 checksum/length errors or flash failures return an error and do not activate the
 new image. SHA-256 detects transfer/file mismatch; it is not a firmware signature.

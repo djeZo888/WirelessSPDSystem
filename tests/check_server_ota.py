@@ -45,12 +45,17 @@ String operator+(const String &a, const String &b) { return String(std::string(a
 uint32_t nowMs = 100;
 uint32_t millis() { return nowMs; }
 std::vector<std::string> events;
+constexpr char SYNTHETIC_OTA_TOKEN[] = "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEf";
+std::vector<std::string> logs;
+void otaLog(const char *message) { logs.emplace_back(message); events.push_back(std::string("log:") + message); }
+unsigned logCount(const char *message) { return std::count(logs.begin(), logs.end(), message); }
 struct EspShim { unsigned restarts = 0; void restart() { restarts++; events.push_back("restart"); } } ESP;
 constexpr int HTTP_POST = 1, U_FLASH = 0;
 enum UploadStatus { UPLOAD_FILE_START, UPLOAD_FILE_WRITE, UPLOAD_FILE_END, UPLOAD_FILE_ABORTED };
 struct HTTPUpload {
   UploadStatus status = UPLOAD_FILE_START;
   String name = "firmware";
+  String filename = "private-image-with-secret.bin";
   size_t currentSize = 0, totalSize = 0;
   uint8_t buf[4096] = {};
 };
@@ -130,11 +135,10 @@ struct WebServer {
     requestHandler = request; uploadHandler = upload;
   }
   HTTPUpload &upload() { return incoming; }
-  bool authenticate(const char *user, const char *password) {
-    assert(String(user) == "updater" && String(password) == "synthetic-test-password");
-    authentications++; return authenticated;
+  String header(const char *name) {
+    if (String(name) == "Authorization") { authentications++; if (!authenticated) return ""; }
+    return requestHeaders[name];
   }
-  String header(const char *name) { return requestHeaders[name]; }
   bool hasArg(const char *name) { return fields.count(name); }
   String arg(const char *name) { return fields[name]; }
   void sendHeader(const char *name, const char *value, bool first = false) {
@@ -256,12 +260,14 @@ String digest(const std::vector<uint8_t> &bytes) {
 struct Fixture {
   WspdWebServer web;
   WspdWebOta ota;
-  Fixture(bool enabled = true) : ota(web, enabled, "updater", "synthetic-test-password", maintenance) {
+  String sensitiveToken;
+  Fixture(bool enabled = true, const char *token = SYNTHETIC_OTA_TOKEN) : ota(web, enabled, token, maintenance, otaLog), sensitiveToken(token ? token : "") {
     assert(!Update.running && !maintenanceActive && hashAllocations == hashFrees);
-    Update = UpdateShim(); ESP.restarts = 0; events.clear(); nowMs = 100;
+    Update = UpdateShim(); ESP.restarts = 0; events.clear(); logs.clear(); nowMs = 100;
     hashStartFail = hashUpdateFail = hashFinishFail = false;
     partitionPresent = true; partition.size = 0x300000;
     web.requestHeaders["X-WSPD-Update"] = "1";
+    web.requestHeaders["Authorization"] = String("Bearer ") + (token ? token : "");
     ota.setup(); assert(web.requestHandler && web.uploadHandler);
   }
   void start(const std::vector<uint8_t> &bytes, const String &size = "", const String &sha = "") {
@@ -300,19 +306,31 @@ struct Fixture {
       assert(hashAllocations == hashFrees);
       nowMs += 2000; ota.loop(nowMs); assert(ESP.restarts == 0);
     }
+    for (const auto &message : logs) {
+      assert(message.find(SYNTHETIC_OTA_TOKEN) == std::string::npos);
+      if (!sensitiveToken.empty()) assert(message.find(sensitiveToken) == std::string::npos);
+      assert(message.find("Authorization") == std::string::npos);
+      assert(message.find("private-image-with-secret.bin") == std::string::npos);
+    }
     cases++;
   }
   void uploadSuccess(const std::vector<uint8_t> &bytes, size_t chunkSize = 137) {
     const unsigned previousBegins = Update.begins, previousEnds = Update.ends, previousActivations = Update.activations;
+    const unsigned starts = logCount("Upload started: 1024 bytes."), queued = logCount("Firmware verified; restart queued.");
     start(bytes); assert(ota.busy() && maintenanceActive && Update.begins == previousBegins + 1);
+    assert(logCount("Upload started: 1024 bytes.") == starts + 1);
     write(bytes, chunkSize); assert(Update.bytes == bytes);
     end(); assert(Update.ends == previousEnds && Update.activations == previousActivations && ota.busy());
     finish(202);
     assert(Update.ends == previousEnds + 1 && Update.activations == previousActivations + 1 && ota.busy() && maintenanceActive && ESP.restarts == 0);
     assert(hashAllocations == hashFrees);
     assert(events.back() == "response");
+    assert(logCount("Firmware verified; restart queued.") == queued + 1);
     nowMs += 1499; ota.loop(nowMs); assert(ESP.restarts == 0);
+    assert(logCount("Restarting receiver after firmware update.") == 0);
     nowMs++; ota.loop(nowMs); assert(ESP.restarts == 1 && events.back() == "restart");
+    assert(logCount("Restarting receiver after firmware update.") == 1);
+    ota.loop(nowMs + 1); assert(logCount("Restarting receiver after firmware update.") == 1);
     // Test harness teardown represents the successful reboot.
     maintenanceActive = false;
   }
@@ -324,7 +342,7 @@ void freshErrorFraming(const Fixture &f, int status) {
   assert(f.web.responseHeaderCount("Transfer-Encoding") == 0 && f.web.wireBody == f.web.body);
   assert(f.web.responseHeaderCount("Cache-Control") == 1 && f.web.responseHeader("Cache-Control") == "no-store");
   assert(f.web.responseHeaderCount("WWW-Authenticate") == (status == 401 ? 1U : 0U));
-  if (status == 401) assert(f.web.responseHeader("WWW-Authenticate") == "Basic realm=\"WirelessSPDSystem firmware\"");
+  if (status == 401) assert(f.web.responseHeader("WWW-Authenticate") == "Bearer realm=\"WirelessSPDSystem firmware\"");
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
   assert(f.web.responseCodeBeforeSend == 0);
 #endif
@@ -364,7 +382,7 @@ int main() {
     f.finish(401, "unauthorized"); assert(Update.begins == 0 && f.web.responseHeaderCount("WWW-Authenticate") == 1);
     f.web.authenticated = true; f.web.newConnection(); f.uploadSuccess(good);
   }
-  { Fixture f; f.web.requestHeaders.clear(); f.start(good); f.finish(400, "request_header"); assert(Update.begins == 0); }
+  { Fixture f; f.web.requestHeaders.erase("X-WSPD-Update"); f.start(good); f.finish(400, "request_header"); assert(Update.begins == 0); }
   { Fixture f; f.web.requestHeaders["X-WSPD-Update"] = "0"; f.start(good); f.finish(400, "request_header"); assert(Update.begins == 0); }
   for (const char *bad : {"0", "287", "3145729", "999999999999999999999999", "-1024", "not-a-size"}) {
     Fixture f; f.start(good, bad); f.finish(413, "size"); assert(Update.begins == 0);
@@ -407,7 +425,7 @@ int main() {
   { Fixture f; f.start(good); f.chunk(good.data(), 300); f.web.authenticated = false; f.chunk(good.data() + 300, 100); f.finish(401, "unauthorized"); assert(Update.bytes.size() == 300 && Update.ends == 0); }
   { Fixture f; f.start(good); f.write(good); f.web.authenticated = false; f.end(); f.finish(401, "unauthorized"); assert(Update.ends == 0); }
   { Fixture f; f.start(good); f.write(good); f.end(); f.web.authenticated = false; f.finish(401, "unauthorized"); assert(Update.ends == 0); }
-  { Fixture f; f.start(good); f.write(good); f.end(); f.web.requestHeaders.clear(); f.finish(400, "request_header"); assert(Update.ends == 0); }
+  { Fixture f; f.start(good); f.write(good); f.end(); f.web.requestHeaders.erase("X-WSPD-Update"); f.finish(400, "request_header"); assert(Update.ends == 0); }
   for (int stage = 0; stage < 3; ++stage) {
     Fixture f; hashStartFail = stage == 0; hashUpdateFail = stage == 1; hashFinishFail = stage == 2;
     f.start(good); f.write(good); f.end(); f.finish(stage == 2 ? 400 : 500, stage == 2 ? "checksum" : "hash"); assert(Update.ends == 0);
@@ -451,6 +469,30 @@ int main() {
     f.web.newConnection(); f.start(good, "3145729"); f.abort(); f.finish(413, "size");
     freshErrorFraming(f, 413); assert(f.web.responses == 2); // Previous GET then one early error.
   }
+  const String validAuthorization = String("Bearer ") + SYNTHETIC_OTA_TOKEN;
+  auto wrongCase = validAuthorization; wrongCase[7] = 'a';
+  auto wrongLast = validAuthorization; wrongLast.back() = 'a';
+  for (const String &invalid : {String(""), String("Basic dXBkYXRlcjpwYXNzd29yZA=="),
+       String("bearer ") + SYNTHETIC_OTA_TOKEN, String(" Bearer ") + SYNTHETIC_OTA_TOKEN,
+       String("Bearer  ") + SYNTHETIC_OTA_TOKEN, validAuthorization + " ", validAuthorization + "\n",
+       String(validAuthorization.substr(0, validAuthorization.size() - 1)), validAuthorization + "A",
+       wrongCase, wrongLast, String("Bearer ") + String(std::string(32, 'Z'))}) {
+    Fixture f; f.web.requestHeaders["Authorization"] = invalid;
+    f.start(good); f.abort(); f.finish(401, "unauthorized"); freshErrorFraming(f, 401);
+    assert(Update.begins == 0 && logCount("Update failed: unauthorized.") == 1);
+  }
+  { Fixture f; f.web.requestHeaders.erase("Authorization"); f.start(good); f.finish(401, "unauthorized"); }
+  for (const char *invalidToken : {"", "TooShort", static_cast<const char *>(nullptr)}) {
+    Fixture f(true, invalidToken); f.start(good); f.finish(401, "unauthorized"); assert(Update.begins == 0);
+  }
+  for (size_t invalidLength : {size_t(31), size_t(129)}) {
+    const std::string token(invalidLength, 'A'); Fixture f(true, token.c_str());
+    f.start(good); f.finish(401, "unauthorized"); assert(Update.begins == 0);
+  }
+  { const std::string token(128, 'z'); Fixture f(true, token.c_str()); f.uploadSuccess(good); }
+  { Fixture f(false); WspdWebOta quiet(f.web, false, "", maintenance); quiet.setup();
+    f.start(good); f.finish(403, "disabled"); assert(logs.empty()); // Optional logger omitted.
+  }
   std::cout << cases << " OTA guard/lifecycle scenarios passed (MbedTLS API " << MBEDTLS_VERSION_MAJOR << ").\n";
 }
 '''
@@ -473,7 +515,7 @@ unsigned configCases = 0;
 void defaults() {
   WIFI_SSID = ""; WIFI_PASSWORD = "";
   FALLBACK_AP_SSID = "Synthetic OTA host test"; FALLBACK_AP_PASSWORD = "synthetic-test-password";
-  OTA_ENABLED = false; OTA_USERNAME = "admin"; OTA_PASSWORD = "";
+  OTA_ENABLED = false; OTA_TOKEN = "";
   MQTT_HOST = ""; MQTT_USERNAME = ""; MQTT_PASSWORD = ""; MQTT_BASE_TOPIC = "wirelessspd";
   lastSetupFailureText[0] = 0; lastSetupFailureCode = 0;
 }
@@ -482,27 +524,25 @@ void check(bool expected) {
   if (actual != expected) std::cerr << "Unexpected configuration result: " << lastSetupFailureText << "\n";
   assert(actual == expected); configCases++;
 }
-void enabled() { defaults(); OTA_ENABLED = true; OTA_USERNAME = "admin"; OTA_PASSWORD = "synthetic-test-password"; }
+constexpr char CONFIG_TEST_TOKEN[] = "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEf";
+void enabled() { defaults(); OTA_ENABLED = true; OTA_TOKEN = CONFIG_TEST_TOKEN; }
 int main() {
   defaults(); check(true); // Public defaults after configuring AP credentials/key.
-  defaults(); OTA_USERNAME = ""; OTA_PASSWORD = ""; check(true); // Disabled OTA accepts empty credentials.
   enabled(); check(true);
-  std::string user(32, 'u'), password(64, 'p');
-  enabled(); OTA_USERNAME = user.c_str(); OTA_PASSWORD = password.c_str(); check(true);
-  assert(strlen(OTA_USERNAME) + strlen(OTA_PASSWORD) + 1 <= CHAR_MAX);
-  std::string minimumPassword(12, 'p'); enabled(); OTA_PASSWORD = minimumPassword.c_str(); check(true);
-  for (const char *invalid : {"", "short", "YOUR_PRIVATE_UPDATE_PASSWORD", "password\nwithcontrol", "password\twithcontrol", "password\x7f" "invalid", "password\xc3\xa9" "invalid", static_cast<const char *>(nullptr)}) {
-    enabled(); OTA_PASSWORD = invalid; check(false);
+  std::string minimumToken(32, 'A'), maximumToken(128, 'z'), shortToken(31, 'A'), longToken(129, 'A');
+  for (bool otaEnabled : {false, true}) {
+    for (const char *valid : {CONFIG_TEST_TOKEN, minimumToken.c_str(), maximumToken.c_str()}) {
+      defaults(); OTA_ENABLED = otaEnabled; OTA_TOKEN = valid; check(true);
+    }
+    for (const char *invalid : {"short", "YOUR_PRIVATE_UPDATE_TOKEN", "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdE1",
+         "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdE_", "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdE ",
+         "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdE\n", "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdE\t",
+         "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdE\x7f", "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdE\xc3\xa9",
+         shortToken.c_str(), longToken.c_str(), static_cast<const char *>(nullptr)}) {
+      defaults(); OTA_ENABLED = otaEnabled; OTA_TOKEN = invalid; check(false);
+    }
   }
-  std::string shortPassword(11, 'p'), longPassword(65, 'p');
-  enabled(); OTA_PASSWORD = shortPassword.c_str(); check(false);
-  enabled(); OTA_PASSWORD = longPassword.c_str(); check(false);
-  for (const char *invalid : {"", "user:name", "user name", "user\tname", "user\nname", "user\x7f", "user\xc3\xa9", static_cast<const char *>(nullptr)}) {
-    enabled(); OTA_USERNAME = invalid; check(false);
-  }
-  std::string longUser(33, 'u'); enabled(); OTA_USERNAME = longUser.c_str(); check(false);
-  defaults(); OTA_PASSWORD = nullptr; check(false);
-  defaults(); OTA_USERNAME = nullptr; check(false);
+  enabled(); OTA_TOKEN = ""; check(false);
   std::string maximumTopic(64, 't'), longTopic(65, 't');
   defaults(); MQTT_BASE_TOPIC = maximumTopic.c_str(); check(true);
   defaults(); MQTT_BASE_TOPIC = "wireless/spd"; check(true);

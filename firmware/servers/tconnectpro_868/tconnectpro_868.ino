@@ -41,6 +41,14 @@
 #include "ota_web.h"
 #include "mqtt_bridge.h"
 #include <math.h>
+#include <esp_heap_caps.h>
+#include <esp_timer.h>
+#include <esp_system.h>
+#include <sys/time.h>
+#include "session_log.h"
+#include "json_format.h"
+
+struct SpdState; // Arduino auto-prototypes may precede the state definition.
 
 #ifndef BLACK
 #define BLACK 0x0000
@@ -127,6 +135,8 @@ static_assert(SPD_COUNT <= 127, "Configure at most 127 wireless SPDs with unique
 static_assert(std::is_same<decltype(OTA_ENABLED), const bool>::value, "OTA_ENABLED must be true or false.");
 static_assert(std::is_integral<decltype(MQTT_PORT)>::value && MQTT_PORT >= 1 && MQTT_PORT <= 65535, "MQTT_PORT must be 1..65535.");
 static_assert(std::is_integral<decltype(MQTT_PUBLISH_SECONDS)>::value && MQTT_PUBLISH_SECONDS >= 1 && MQTT_PUBLISH_SECONDS <= 3600, "MQTT_PUBLISH_SECONDS must be 1..3600.");
+static_assert(std::is_integral<decltype(SESSION_LOG_BYTES)>::value && SESSION_LOG_BYTES >= 65536UL && SESSION_LOG_BYTES <= 4UL * 1024UL * 1024UL,
+              "SESSION_LOG_BYTES must be an integer in 65536..4194304 bytes.");
 // END CONFIG VALIDATION
 
 // =============================================================================
@@ -171,7 +181,56 @@ bool displayUsesCanvas = false;
 SX1262 radio = new Module(SX1262_CS, SX1262_DIO1, SX1262_RST, SX1262_BUSY, SPI);
 WspdWebServer server(80);
 static void firmwareMaintenance(bool active);
-WspdWebOta firmwareOta(server, OTA_ENABLED, OTA_USERNAME, OTA_PASSWORD, firmwareMaintenance);
+static void sessionLogLine(const char *text);
+static void sessionLogf(const char *fmt, ...);
+WspdWebOta firmwareOta(server, OTA_ENABLED, OTA_TOKEN, firmwareMaintenance, sessionLogLine);
+WspdSessionLog sessionLog;
+static WspdSessionLog::Record emergencyLog[16];
+static bool sessionLogPsram = false;
+static char sessionBootId[17] = {0};
+static uint64_t sessionNowMs() { return uint64_t(esp_timer_get_time()) / 1000ULL; }
+
+static void sessionLogLine(const char *text) {
+  sessionLog.append(sessionNowMs(), text);
+  Serial.println(text);
+}
+
+static void sessionLogf(const char *fmt, ...) {
+  char message[496]; va_list args; va_start(args, fmt);
+  const int size = vsnprintf(message, sizeof(message), fmt, args); va_end(args);
+  if (size >= int(sizeof(message))) strcpy(message + sizeof(message) - 15, "...[truncated]");
+  sessionLogLine(message);
+}
+
+static void setupSessionLog() {
+  void *storage = heap_caps_malloc(SESSION_LOG_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  size_t bytes = SESSION_LOG_BYTES; sessionLogPsram = storage != nullptr;
+  if (!storage) {
+    bytes = 32768;
+    storage = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
+  if (!storage) { storage = emergencyLog; bytes = sizeof(emergencyLog); }
+  sessionLog.begin(static_cast<WspdSessionLog::Record *>(storage), bytes / sizeof(WspdSessionLog::Record));
+  snprintf(sessionBootId, sizeof(sessionBootId), "%08lx%08lx", (unsigned long)esp_random(), (unsigned long)esp_random());
+  sessionLogf("System start: %s, reset reason=%d", SERVER_FIRMWARE_ID, int(esp_reset_reason()));
+  sessionLogf("Session log: %u bytes, %u records, storage=%s; free internal=%u PSRAM=%u bytes",
+              unsigned(bytes), unsigned(sessionLog.capacity()), sessionLogPsram ? "PSRAM" : "emergency internal RAM",
+              unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+              unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+}
+
+static void serviceSessionClock() {
+  static uint32_t lastCheck = 0;
+  const uint32_t now = millis();
+  if (uint32_t(now - lastCheck) < 1000UL) return; lastCheck = now;
+  if (!sessionLog.clockSynced()) {
+    struct timeval time; gettimeofday(&time, nullptr);
+    if (time.tv_sec >= 1704067200) {
+      sessionLog.syncClock(sessionNowMs(), uint64_t(time.tv_sec) * 1000ULL + unsigned(time.tv_usec / 1000));
+      sessionLogLine("Clock: network time synchronized; startup timestamps reconstructed from time since boot");
+    }
+  }
+}
 WspdMqttBridge mqttBridge(MQTT_HOST, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD, MQTT_BASE_TOPIC, MQTT_PUBLISH_SECONDS);
 char gatewayId[24] = {0};
 
@@ -311,7 +370,7 @@ static void onDio1Action() {
 static bool setupFailure(const char *module, const char *step, int16_t code) {
   lastSetupFailureCode = code;
   snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "%s %s failed", module, step);
-  Serial.printf("[%s] %s failed: %d\n", module, step, code);
+  sessionLogf("[%s] %s failed: %d\n", module, step, code);
   bootLogf(RED, "%s: %s failed (%d)", module, step, code);
   return false;
 }
@@ -437,7 +496,7 @@ static void applyLocalSpdState(bool ok, bool force) {
     localSpd.seen = true;
     localSpd.lastSeenMs = now;
     localSpd.lastStatusChangeMs = now;
-    Serial.printf("[Local SPD] ID %03d %s pin=IO%d\n", SPD_LOCAL_ID, ok ? "OK" : "FAIL", SPD_LOCAL_PIN);
+    sessionLogf("[Local SPD] ID %03d %s pin=IO%d\n", SPD_LOCAL_ID, ok ? "OK" : "FAIL", SPD_LOCAL_PIN);
     requestScreenRedraw();
   } else {
     localSpd.seen = true;
@@ -476,19 +535,18 @@ static bool validateSpdConfig() {
     return false;
   }
 
-  if (!OTA_USERNAME || !OTA_PASSWORD || (OTA_ENABLED &&
-      (strlen(OTA_USERNAME) < 1 || strlen(OTA_USERNAME) > 32 || strchr(OTA_USERNAME, ':') || strlen(OTA_PASSWORD) < 12 || strlen(OTA_PASSWORD) > 64))) {
-    snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "OTA needs username and 12..64 character password");
+  const size_t tokenLength = OTA_TOKEN ? strlen(OTA_TOKEN) : 0;
+  bool tokenValid = OTA_TOKEN && (tokenLength == 0 ? !OTA_ENABLED : tokenLength >= 32 && tokenLength <= 128);
+  for (size_t i = 0; tokenValid && i < tokenLength; ++i) {
+    const char c = OTA_TOKEN[i]; tokenValid = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+  }
+  if (!tokenValid) {
+    snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "OTA token: 32..128 ASCII letters; empty only if disabled");
     lastSetupFailureCode = -1; return false;
   }
-  if (OTA_ENABLED) {
-    bool printable = strcmp(OTA_PASSWORD, "YOUR_PRIVATE_UPDATE_PASSWORD") != 0;
-    for (const unsigned char *p = (const unsigned char *)OTA_USERNAME; *p; ++p) printable &= *p >= 33 && *p <= 126;
-    for (const unsigned char *p = (const unsigned char *)OTA_PASSWORD; *p; ++p) printable &= *p >= 32 && *p <= 126;
-    if (!printable) {
-      snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "OTA needs private printable ASCII credentials");
-      lastSetupFailureCode = -1; return false;
-    }
+  if (!NTP_SERVER || strlen(NTP_SERVER) > 253) {
+    snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "NTP server: empty or up to 253 bytes");
+    lastSetupFailureCode = -1; return false;
   }
   if (!MQTT_HOST || !MQTT_USERNAME || !MQTT_PASSWORD || !MQTT_BASE_TOPIC ||
       strlen(MQTT_HOST) > 253 || strlen(MQTT_USERNAME) > 128 || strlen(MQTT_PASSWORD) > 128 ||
@@ -665,24 +723,26 @@ static String ipString() {
 static void processSpdPayload(const uint8_t *payload, size_t len, float rssi, float snr) {
   if (len != SPD_PAYLOAD_LEN) {
     totalInvalidPackets++;
-    Serial.printf("[LoRa] Reject wrong payload length: %u\n", (unsigned)len);
+    sessionLogf("[LoRa] Reject wrong payload length: %u\n", (unsigned)len);
     return;
   }
 
+  char packetRaw[SPD_PAYLOAD_LEN * 2 + 1]; bytesToHex(payload, len, packetRaw, sizeof(packetRaw));
+  sessionLogf("[LoRa] Received %u bytes RSSI=%.1f dBm SNR=%.1f dB raw=%s", unsigned(len), rssi, snr, packetRaw);
   const uint8_t claimedSpdId = (payload[1] >> 1) & 0x7F;
   size_t idx = 0;
   const SpdConfig *cfg = findConfig(claimedSpdId, &idx);
   if (!cfg) {
     totalInvalidPackets++;
     totalUnconfiguredRejects++;
-    Serial.printf("[LoRa] Reject unconfigured SPD ID %u\n", claimedSpdId);
+    sessionLogf("[LoRa] Reject unconfigured SPD ID %u\n", claimedSpdId);
     return;
   }
 
   if (!verifyTag(payload, cfg->secret)) {
     totalInvalidPackets++;
     totalAuthRejects++;
-    Serial.printf("[LoRa] Reject auth/tag failure for SPD ID %u\n", claimedSpdId);
+    sessionLogf("[LoRa] Reject auth/tag failure for SPD ID %u\n", claimedSpdId);
     return;
   }
 
@@ -698,7 +758,7 @@ static void processSpdPayload(const uint8_t *payload, size_t len, float rssi, fl
 
   if (s.nonceKnown && nonce <= s.nonce) {
     totalOldNoncePackets++;
-    Serial.printf("[LoRa] Reject old nonce SPD %u got=%s last=%s\n",
+    sessionLogf("[LoRa] Reject old nonce SPD %u got=%s last=%s\n",
                   claimedSpdId, u64Hex(nonce).c_str(), u64Hex(s.nonce).c_str());
     return;
   }
@@ -735,7 +795,7 @@ static void processSpdPayload(const uint8_t *payload, size_t len, float rssi, fl
 
   totalValidPackets++;
 
-  Serial.printf("[LoRa] SPD %03u %s name='%s' hw/fw=%u/%u temp=%+dC bat=%s RSSI=%.1f SNR=%.1f nonce=%s skipped=%lu loss=%.1f%% (%u/%u) raw=%s\n",
+  sessionLogf("[LoRa] SPD %03u %s name='%.80s' hw/fw=%u/%u temp=%+dC bat=%s RSSI=%.1f SNR=%.1f nonce=%s skipped=%lu loss=%.1f%% (%u/%u) raw=%s\n",
                 claimedSpdId,
                 statusCode ? "OK" : "FAIL",
                 cfg->friendlyName,
@@ -790,7 +850,7 @@ static bool setupLoRa() {
   if (!loraApplyStep("setCRC", state)) return false;
   if (!loraApplyStep("startReceive", radio.startReceive())) return false;
 
-  Serial.printf("[LoRa] RX ready: %.4f MHz SF%u BW%.1fkHz CR4/%u sync=0x%02X preamble=%u CRC=%s\n",
+  sessionLogf("[LoRa] RX ready: %.4f MHz SF%u BW%.1fkHz CR4/%u sync=0x%02X preamble=%u CRC=%s\n",
                 LORA_FREQ_MHZ, LORA_SF, LORA_BW_KHZ, LORA_CR, LORA_SYNCWORD, LORA_PREAMBLE,
                 LORA_CRC_ENABLED ? "on" : "off");
   bootLogf(DARKGREEN, "LoRa ready: %.4fMHz SF%u BW%.0fk", LORA_FREQ_MHZ, LORA_SF, LORA_BW_KHZ);
@@ -816,7 +876,7 @@ static void handleLoRa() {
       processSpdPayload(payload, packetLen, rssi, snr);
     } else {
       totalInvalidPackets++;
-      Serial.printf("[LoRa] readData failed: %d\n", state);
+      sessionLogf("[LoRa] readData failed: %d RSSI=%.1f dBm SNR=%.1f dB", state, radio.getRSSI(), radio.getSNR());
     }
   } else {
     // Drain unexpected packet length.
@@ -824,12 +884,13 @@ static void handleLoRa() {
     const size_t drainLen = (packetLen < sizeof(drain)) ? packetLen : sizeof(drain);
     state = radio.readData(drain, drainLen);
     totalInvalidPackets++;
-    Serial.printf("[LoRa] Reject packet length %u, read state=%d\n", (unsigned)packetLen, state);
+    char raw[129]; bytesToHex(drain, state == RADIOLIB_ERR_NONE ? drainLen : 0, raw, sizeof(raw));
+    sessionLogf("[LoRa] Reject packet length %u, read state=%d RSSI=%.1f dBm SNR=%.1f dB first64=%s", unsigned(packetLen), state, radio.getRSSI(), radio.getSNR(), raw);
   }
 
   state = radio.startReceive();
   if (state != RADIOLIB_ERR_NONE) {
-    Serial.printf("[LoRa] restart RX failed: %d\n", state);
+    sessionLogf("[LoRa] restart RX failed: %d\n", state);
   }
 }
 
@@ -857,7 +918,7 @@ static void drawBootHeader() {
 }
 
 static void bootLogLine(uint16_t color, const char *text) {
-  Serial.println(text);
+  sessionLogLine(text);
   if (!gfx) return;
   const int16_t y = 22 + (int16_t)bootLineIndex * 9;
   if (y <= gfx->height() - 8) {
@@ -881,7 +942,7 @@ static void bootLogf(uint16_t color, const char *fmt, ...) {
 
 static void fatalBootError(int32_t code, const char *module, const char *text) {
   setRelay(false);
-  Serial.printf("[BOOT ERROR] %s code=%ld text=%s\n", module, (long)code, text);
+  sessionLogf("[BOOT ERROR] %s code=%ld text=%s\n", module, (long)code, text);
 
   if (gfx) {
     gfx->fillScreen(WHITE);
@@ -1155,9 +1216,9 @@ static void setupDisplay() {
   if (displayUsesCanvas) {
     gfx = screenCanvas;
     lcd->setRotation(DISPLAY_ROTATION);
-    Serial.printf("[Display] Canvas enabled: %d x %d, rotation=%u\n", gfx->width(), gfx->height(), DISPLAY_ROTATION);
+    sessionLogf("[Display] Canvas enabled: %d x %d, rotation=%u\n", gfx->width(), gfx->height(), DISPLAY_ROTATION);
   } else {
-    Serial.println("[Display] Canvas allocation failed; falling back to direct LCD drawing");
+    sessionLogLine("[Display] Canvas allocation failed; falling back to direct LCD drawing");
     lcd->begin();
     lcd->setRotation(DISPLAY_ROTATION);
     gfx = lcd;
@@ -1233,7 +1294,7 @@ static bool setupTouch() {
   delay(20);
 
   if (!present) {
-    Serial.println("[Touch] CST226SE not found at I2C address 0x5A");
+    sessionLogLine("[Touch] CST226SE not found at I2C address 0x5A");
     touchOk = false;
     snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "CST226SE not found at I2C 0x5A");
     lastSetupFailureCode = -1;
@@ -1244,7 +1305,7 @@ static bool setupTouch() {
   attachInterrupt(digitalPinToInterrupt(TOUCH_INT), onTouchInterrupt, FALLING);
 
   const int16_t id = cstReadDeviceId();
-  Serial.printf("[Touch] CST226SE init OK, ID=0x%02X\n", id >= 0 ? id : 0);
+  sessionLogf("[Touch] CST226SE init OK, ID=0x%02X\n", id >= 0 ? id : 0);
   bootLogf(BLACK, "Touch: CST226SE OK ID=0x%02X", id >= 0 ? id : 0);
   touchInterruptFlag = false;
   lastTouchPollMs = millis();
@@ -1321,7 +1382,7 @@ static void handleTouch() {
 
   if (pointInRect(x, y, MUTE_BTN_X, MUTE_BTN_Y, MUTE_BTN_W, MUTE_BTN_H)) {
     alarmMuted = !alarmMuted;
-    Serial.printf("[Alarm] %s\n", alarmMuted ? "Muted" : "Unmuted");
+    sessionLogf("[Alarm] %s\n", alarmMuted ? "Muted" : "Unmuted");
     requestScreenRedraw();
   }
 }
@@ -1331,6 +1392,8 @@ static void handleTouch() {
 // =============================================================================
 
 static void setRelay(bool on) {
+  static bool known = false, current = false;
+  if (!known || current != on) { sessionLogf("[Relay] Output %s", on ? "ON" : "OFF"); current = on; known = true; }
   digitalWrite(RELAY_1, on ? RELAY_ACTIVE_LEVEL : RELAY_INACTIVE_LEVEL);
 }
 
@@ -1353,11 +1416,29 @@ static void handleAlarmRelay() {
   setRelay(phase < onMs);
 }
 
+static void serviceSessionEvents() {
+  static int previousWifi = -100, previousMqtt = -1, previousAlarm = -1;
+  static uint32_t lastCheck = 0; static bool wasStale[SPD_COUNT] = {false};
+  const uint32_t now = millis();
+  if (uint32_t(now - lastCheck) < 1000UL) return; lastCheck = now;
+  const int wifi = int(WiFi.status());
+  if (wifi != previousWifi) { sessionLogf("[WiFi] State=%d mode=%d IP=%s", wifi, int(WiFi.getMode()), ipString().c_str()); previousWifi = wifi; }
+  const int mqtt = mqttBridge.connected() ? 1 : 0;
+  if (mqtt != previousMqtt) { sessionLogf("[MQTT] %s", mqttBridge.enabled() ? (mqtt ? "Connected" : "Disconnected") : "Disabled"); previousMqtt = mqtt; }
+  const int alarm = currentAlarmKind();
+  if (alarm != previousAlarm) { sessionLogf("[Alarm] State=%s muted=%s", alarmKindText(alarm), alarmMuted ? "yes" : "no"); previousAlarm = alarm; }
+  for (size_t i = 0; i < SPD_COUNT; ++i) {
+    const bool stale = isStale(spdStates[i]);
+    if (stale != wasStale[i]) { sessionLogf("[SPD] ID %u %s", SPD_CONFIGS[i].id, stale ? "STALE: report timeout" : "Fresh reports resumed"); wasStale[i] = stale; }
+  }
+}
+
 // =============================================================================
 // WI-FI AND WEB SERVER
 // =============================================================================
 
 static void firmwareMaintenance(bool active) {
+  sessionLogf("[Monitoring] %s for firmware update", active ? "Paused; relay OFF" : "Resumed");
   mqttBridge.setPaused(active);
   setRelay(false);
   if (loraInitialized) {
@@ -1581,7 +1662,18 @@ static void handleIndex() {
 }
 
 static void handleApiGet() {
-  sendJson(200, buildApiJson());
+  const String body = buildApiJson();
+  if (!server.hasArg("pretty") || server.arg("pretty") != "1") { sendJson(200, body); return; }
+  server.sendHeader("Cache-Control", "no-store");
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/plain; charset=utf-8", "");
+  char chunk[1025]; size_t used = 0;
+  wspdPrettyJson(body.c_str(), body.length(), [&](char c) {
+    chunk[used++] = c;
+    if (used == sizeof(chunk) - 1) { chunk[used] = 0; server.sendContent(chunk); used = 0; }
+  });
+  if (used) { chunk[used] = 0; server.sendContent(chunk); }
+  server.sendContent("");
 }
 
 static void handleMute() {
@@ -1590,8 +1682,50 @@ static void handleMute() {
   } else {
     alarmMuted = !alarmMuted;
   }
+  sessionLogf("[Alarm] %s via web", alarmMuted ? "Muted" : "Unmuted");
   requestScreenRedraw();
   sendJson(200, String("{\"status\":\"ok\",\"alarm_muted\":") + (alarmMuted ? "true" : "false") + "}");
+}
+
+static String logDecimal(uint64_t value) {
+  char text[21]; snprintf(text, sizeof(text), "%llu", (unsigned long long)value); return String(text);
+}
+
+static void handleLogs() {
+  uint64_t after = 0, before = 0, limit = 100;
+  if ((server.hasArg("after") && !wspdLogNumber(server.arg("after").c_str(), after)) ||
+      (server.hasArg("before") && !wspdLogNumber(server.arg("before").c_str(), before)) ||
+      (server.hasArg("limit") && !wspdLogNumber(server.arg("limit").c_str(), limit)) ||
+      limit < 1 || limit > 100 || (server.hasArg("after") && server.hasArg("before")) ||
+      (server.hasArg("tail") && server.arg("tail") != "1")) {
+    sendJson(400, "{\"error\":\"query\",\"message\":\"Use after or before, limit 1..100, or tail=1.\"}"); return;
+  }
+  uint64_t end = sessionLog.next(), begin = sessionLog.oldest();
+  if (server.hasArg("before")) {
+    if (before < end) end = before;
+    if (end < begin) end = begin;
+    begin = end - begin > limit ? end - limit : begin;
+  } else if (server.hasArg("tail")) begin = end - begin > limit ? end - limit : begin;
+  else if (server.hasArg("after") && after >= begin) begin = after >= end ? end : after + 1;
+  const uint64_t finish = end - begin > limit ? begin + limit : end;
+  String meta = "{\"boot_id\":\"" + String(sessionBootId) + "\",\"capacity\":" + String(sessionLog.capacity());
+  meta += ",\"bytes\":" + String(sessionLog.capacity() * sizeof(WspdSessionLog::Record));
+  meta += ",\"psram\":" + String(sessionLogPsram ? "true" : "false") + ",\"dropped\":" + logDecimal(sessionLog.dropped());
+  meta += ",\"clock_synced\":" + String(sessionLog.clockSynced() ? "true" : "false");
+  meta += ",\"oldest_seq\":" + logDecimal(sessionLog.oldest()) + ",\"next_seq\":" + logDecimal(sessionLog.next());
+  meta += ",\"has_more\":" + String((server.hasArg("before") ? begin > sessionLog.oldest() : finish < end) ? "true" : "false");
+  meta += ",\"entries\":[";
+  server.sendHeader("Cache-Control", "no-store"); server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json; charset=utf-8", ""); server.sendContent(meta);
+  for (uint64_t seq = begin; seq < finish; ++seq) {
+    const WspdSessionLog::Record *record = sessionLog.get(seq); if (!record) continue;
+    String row = seq == begin ? "{" : ",{"; // Assemble only one entry at a time.
+    row += "\"seq\":" + logDecimal(seq) + ",\"boot_ms\":" + logDecimal(record->bootMs) + ",\"unix_ms\":";
+    const uint64_t epoch = sessionLog.unixMs(record->bootMs);
+    row += epoch ? logDecimal(epoch) : String("null");
+    row += ",\"message\":\"" + jsonEscape(record->message) + "\"}"; server.sendContent(row);
+  }
+  server.sendContent("]}"); server.sendContent("");
 }
 
 static void handleHealthz() {
@@ -1605,13 +1739,14 @@ static bool setupWebServer() {
   server.on("/", HTTP_GET, handleIndex);
   server.on("/index.html", HTTP_GET, handleIndex);
   server.on("/api/v1/get", HTTP_GET, handleApiGet);
+  server.on("/api/v1/logs", HTTP_GET, handleLogs);
   server.on("/api/v1/mute", HTTP_POST, handleMute);
   server.on("/healthz", HTTP_GET, handleHealthz);
   server.onNotFound([]() {
     sendJson(404, "{\"error\":\"not_found\"}");
   });
   server.begin();
-  Serial.printf("[Web] http://%s/\n", ipString().c_str());
+  sessionLogf("[Web] http://%s/\n", ipString().c_str());
   bootLogf(BLACK, "Web: http://%s/", ipString().c_str());
   return true;
 }
@@ -1622,7 +1757,7 @@ static bool setupWiFi() {
 
   if (WIFI_SSID && strlen(WIFI_SSID) > 0 && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
     bootLogf(BLACK, "WiFi: connecting to %s", WIFI_SSID);
-    Serial.printf("[WiFi] Connecting to %s\n", WIFI_SSID);
+    sessionLogf("[WiFi] Connecting to %s\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     const uint32_t start = millis();
     while (millis() - start < WIFI_CONNECT_TIMEOUT_MS) {
@@ -1637,7 +1772,7 @@ static bool setupWiFi() {
   }
 
   if (connected) {
-    Serial.printf("[WiFi] Connected, IP=%s\n", WiFi.localIP().toString().c_str());
+    sessionLogf("[WiFi] Connected, IP=%s\n", WiFi.localIP().toString().c_str());
     bootLogf(BLACK, "WiFi: STA IP %s", WiFi.localIP().toString().c_str());
     return true;
   }
@@ -1654,7 +1789,7 @@ static bool setupWiFi() {
     return false;
   }
 
-  Serial.printf("[WiFi] Fallback AP started: SSID=%s IP=%s\n", FALLBACK_AP_SSID, WiFi.softAPIP().toString().c_str());
+  sessionLogf("[WiFi] Fallback AP started: SSID=%s IP=%s\n", FALLBACK_AP_SSID, WiFi.softAPIP().toString().c_str());
   bootLogf(BLACK, "WiFi: AP %s IP %s", FALLBACK_AP_SSID, WiFi.softAPIP().toString().c_str());
   return true;
 }
@@ -1668,8 +1803,8 @@ void setup() {
   snprintf(gatewayId, sizeof(gatewayId), "wspd-%012llx", (unsigned long long)ESP.getEfuseMac());
   Serial.begin(115200);
   delay(200);
-  Serial.println();
-  Serial.printf("T-Connect Pro SPD Monitor %s starting\n", SERVER_FIRMWARE_ID);
+  setupSessionLog();
+  sessionLogf("T-Connect Pro SPD Monitor %s starting\n", SERVER_FIRMWARE_ID);
 
   setupRelay();
   setupDisplay();
@@ -1696,6 +1831,11 @@ void setup() {
     fatalBootError(lastSetupFailureCode, "WiFi", lastSetupFailureText[0] ? lastSetupFailureText : "WiFi initialization failed");
   }
 
+  if (WiFi.status() == WL_CONNECTED && NTP_SERVER[0]) {
+    configTime(0, 0, NTP_SERVER);
+    bootLogLine(BLACK, "Clock: requesting network time (UTC)");
+  } else bootLogLine(BLACK, "Clock: using time since boot until network time is available");
+
   if (!setupWebServer()) {
     fatalBootError(-1, "Web", "Web server initialization failed");
   }
@@ -1719,6 +1859,8 @@ void setup() {
 }
 
 void loop() {
+  serviceSessionClock();
+  serviceSessionEvents();
   server.handleClient();
   firmwareOta.loop(millis());
   if (firmwareOta.busy()) { setRelay(false); return; }

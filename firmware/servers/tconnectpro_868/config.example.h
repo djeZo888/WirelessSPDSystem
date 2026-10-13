@@ -16,10 +16,16 @@ static const char *FALLBACK_AP_PASSWORD = "CHANGE_ME_AP_PASSWORD";
 // Station connection timeout: 0..2147483647 ms (0 = immediate fallback).
 constexpr auto WIFI_CONNECT_TIMEOUT_MS = 15000;
 
-// Network firmware updates: disabled until configured with private credentials.
+// Network firmware updates: disabled until a private token is configured.
 constexpr auto OTA_ENABLED = false;
-static const char *OTA_USERNAME = "admin";
-static const char *OTA_PASSWORD = ""; // 12..64 printable ASCII characters when enabled
+static const char *OTA_TOKEN = ""; // 32..128 ASCII letters (A-Z, a-z); no username
+
+// Session log uses PSRAM first; oldest entries are overwritten when full.
+// 64 KiB..4 MiB; default 2 MiB = 4096 records. Smaller emergency RAM fallback.
+constexpr auto SESSION_LOG_BYTES = 2UL * 1024UL * 1024UL;
+// Network clock: UTC on the API, local 24-hour dates/times in the browser.
+// Until NTP sync, logs show time since boot. Empty server disables NTP.
+static const char *NTP_SERVER = "pool.ntp.org";
 
 // Optional Home Assistant MQTT discovery; empty host disables it.
 // Connect the receiver to the same LAN as the broker using station Wi-Fi above.
