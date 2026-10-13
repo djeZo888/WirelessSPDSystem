@@ -12,7 +12,7 @@ serves a local web dashboard. Battery beacons also report supply voltage.
 | --- | --- | --- | --- |
 | TX | [AC-DC beacon](hardware/ac-dc/README.md), AVR128DA32 + Wio-SX1262 | [acdc_avr128da32](firmware/beacons/acdc_avr128da32) | 1 / 1 |
 | TX | [Battery beacon](hardware/battery/README.md), AVR128DB32 + Wio-SX1262 | [battery_avr128db32](firmware/beacons/battery_avr128db32) | 2 / 1 |
-| RX | LILYGO T Connect Pro V1.0, ESP32-S3, display, 868 MHz SX1262 | [tconnectpro_868 v0.1](firmware/servers/tconnectpro_868/README.md) | Accepts both TX types |
+| RX | LILYGO T Connect Pro V1.0, ESP32-S3, display, 868 MHz SX1262 | [tconnectpro_868 v0.2](firmware/servers/tconnectpro_868/README.md) | Accepts both TX types |
 
 Example settings match: **865.3 MHz, SF10, 125 kHz, CR 4/5, sync 0x12**.
 The 868 MHz label identifies the radio hardware; it is not the configured carrier.
@@ -31,7 +31,8 @@ Choose lawful frequency, airtime and transmit power for your installation.
 [Packet format and authentication](docs/protocol.md) ·
 [Configuration ranges and shared radio settings](docs/radio-configuration.md) ·
 [Build validation](docs/validation.md) ·
-[T Connect Pro server guide](firmware/servers/tconnectpro_868/README.md)
+[T Connect Pro server guide](firmware/servers/tconnectpro_868/README.md) ·
+[Home Assistant](docs/home-assistant.md) · [Network updates](docs/network-updates.md)
 
 The receiver displays **eight rows per page** when more than eight wireless/local
 SPDs are configured. Set `DISPLAY_PAGE_SECONDS` in private `config.h` before

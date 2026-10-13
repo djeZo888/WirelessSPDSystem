@@ -16,6 +16,20 @@ static const char *FALLBACK_AP_PASSWORD = "CHANGE_ME_AP_PASSWORD";
 // Station connection timeout: 0..2147483647 ms (0 = immediate fallback).
 constexpr auto WIFI_CONNECT_TIMEOUT_MS = 15000;
 
+// Network firmware updates: disabled until configured with private credentials.
+constexpr auto OTA_ENABLED = false;
+static const char *OTA_USERNAME = "admin";
+static const char *OTA_PASSWORD = ""; // 12..64 printable ASCII characters when enabled
+
+// Optional Home Assistant MQTT discovery; empty host disables it.
+// Connect the receiver to the same LAN as the broker using station Wi-Fi above.
+static const char *MQTT_HOST = ""; // hostname or IPv4 address
+constexpr auto MQTT_PORT = 1883;
+static const char *MQTT_USERNAME = "";
+static const char *MQTT_PASSWORD = "";
+static const char *MQTT_BASE_TOPIC = "wirelessspd";
+constexpr auto MQTT_PUBLISH_SECONDS = 10; // 1..3600; LoRa reception remains independent
+
 // LCD: eight rows per page. One page stays fixed; multiple pages cycle.
 // Set the time each page is visible before compiling (1..3600 seconds).
 constexpr auto DISPLAY_PAGE_SECONDS = 5;

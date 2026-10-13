@@ -1,0 +1,38 @@
+# Merge these sections into configuration.yaml. Set wireless_spd_api_url in
+# secrets.yaml. One GET returns all SPDs; templates create no extra HTTP calls.
+# Rename unique IDs and source entity references if adding another receiver.
+rest:
+  - resource: !secret wireless_spd_api_url
+    scan_interval: 10
+    timeout: 5
+    sensor:
+      - name: "Wireless SPD snapshot"
+        unique_id: wireless_spd_snapshot
+        value_template: "{{ value_json.summary.configured }}"
+        json_attributes:
+          - gateway
+          - summary
+          - spds
+
+template:
+  - sensor:
+      - name: "SPD 1 status"
+        unique_id: wireless_spd_1_status
+        availability: "{{ has_value('sensor.wireless_spd_snapshot') }}"
+        state: >-
+          {% set rows = state_attr('sensor.wireless_spd_snapshot', 'spds') | default([], true) %}
+          {% set matching = rows | selectattr('spd_id', 'eq', 1) | list %}
+          {{ matching[0].status if matching else 'UNKNOWN' }}
+    binary_sensor:
+      - name: "SPD 1 fault"
+        unique_id: wireless_spd_1_fault
+        device_class: problem
+        availability: >-
+          {% set rows = state_attr('sensor.wireless_spd_snapshot', 'spds') | default([], true) %}
+          {% set matching = rows | selectattr('spd_id', 'eq', 1) | list %}
+          {{ has_value('sensor.wireless_spd_snapshot') and matching | count > 0
+             and matching[0].status in ['OK', 'FAIL'] }}
+        state: >-
+          {% set rows = state_attr('sensor.wireless_spd_snapshot', 'spds') | default([], true) %}
+          {% set matching = rows | selectattr('spd_id', 'eq', 1) | list %}
+          {{ matching | count > 0 and matching[0].status == 'FAIL' }}

@@ -3,9 +3,10 @@
 | Dependency | Pin | Upstream terms/source |
 | --- | --- | --- |
 | DxCore | 1.6.2 | [Repository and licensing](https://github.com/SpenceKonde/DxCore/tree/1.6.2) |
-| Arduino ESP32 core | 2.0.14 | [Repository and notices](https://github.com/espressif/arduino-esp32/tree/2.0.14) |
+| Arduino ESP32 core | 3.3.12 | [Repository and notices](https://github.com/espressif/arduino-esp32/tree/3.3.12) |
 | RadioLib | 7.8.1 | [MIT license](https://github.com/jgromes/RadioLib/blob/7.8.1/LICENSE) |
-| GFX Library for Arduino | 1.4.6 | [Repository and licenses](https://github.com/moononournation/Arduino_GFX/tree/v1.4.6) |
+| GFX Library for Arduino | 1.6.9 | [Repository and licenses](https://github.com/moononournation/Arduino_GFX/tree/v1.6.9) |
+| PubSubClient | 2.8 | [MIT license](https://github.com/knolleary/pubsubclient/blob/v2.8/LICENSE.txt) |
 | usha256 | commit `1c62a3f` | [Exact provenance and checksums](firmware/beacons/third-party/usha256.md) |
 
 The root MIT license covers this project's code and documentation, not third-party

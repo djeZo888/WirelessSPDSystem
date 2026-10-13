@@ -37,6 +37,10 @@
 #include "config_types.h"
 #include "board_pins.h"
 #include "version.h"
+#include "web_ui.h"
+#include "ota_web.h"
+#include "mqtt_bridge.h"
+#include <math.h>
 
 #ifndef BLACK
 #define BLACK 0x0000
@@ -120,6 +124,9 @@ static_assert(std::is_integral<decltype(SPD_LOCAL_PIN)>::value, "SPD_LOCAL_PIN m
 static_assert((SPD_LOCAL_PIN >= 0 && SPD_LOCAL_PIN <= 21) || (SPD_LOCAL_PIN >= 26 && SPD_LOCAL_PIN <= 48), "SPD_LOCAL_PIN must be a valid ESP32-S3 GPIO number");
 static_assert(SPD_TOTAL_COUNT > 0, "Configure at least one wireless SPD or enable SPD_LOCAL_ID");
 static_assert(SPD_COUNT <= 127, "Configure at most 127 wireless SPDs with unique IDs 1..127.");
+static_assert(std::is_same<decltype(OTA_ENABLED), const bool>::value, "OTA_ENABLED must be true or false.");
+static_assert(std::is_integral<decltype(MQTT_PORT)>::value && MQTT_PORT >= 1 && MQTT_PORT <= 65535, "MQTT_PORT must be 1..65535.");
+static_assert(std::is_integral<decltype(MQTT_PUBLISH_SECONDS)>::value && MQTT_PUBLISH_SECONDS >= 1 && MQTT_PUBLISH_SECONDS <= 3600, "MQTT_PUBLISH_SECONDS must be 1..3600.");
 // END CONFIG VALIDATION
 
 // =============================================================================
@@ -162,7 +169,11 @@ Arduino_GFX *gfx = screenCanvas;
 bool displayUsesCanvas = false;
 
 SX1262 radio = new Module(SX1262_CS, SX1262_DIO1, SX1262_RST, SX1262_BUSY, SPI);
-WebServer server(80);
+WspdWebServer server(80);
+static void firmwareMaintenance(bool active);
+WspdWebOta firmwareOta(server, OTA_ENABLED, OTA_USERNAME, OTA_PASSWORD, firmwareMaintenance);
+WspdMqttBridge mqttBridge(MQTT_HOST, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD, MQTT_BASE_TOPIC, MQTT_PUBLISH_SECONDS);
+char gatewayId[24] = {0};
 
 // =============================================================================
 // STATE
@@ -465,6 +476,27 @@ static bool validateSpdConfig() {
     return false;
   }
 
+  if (!OTA_USERNAME || !OTA_PASSWORD || (OTA_ENABLED &&
+      (strlen(OTA_USERNAME) < 1 || strlen(OTA_USERNAME) > 32 || strchr(OTA_USERNAME, ':') || strlen(OTA_PASSWORD) < 12 || strlen(OTA_PASSWORD) > 64))) {
+    snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "OTA needs username and 12..64 character password");
+    lastSetupFailureCode = -1; return false;
+  }
+  if (OTA_ENABLED) {
+    bool printable = strcmp(OTA_PASSWORD, "YOUR_PRIVATE_UPDATE_PASSWORD") != 0;
+    for (const unsigned char *p = (const unsigned char *)OTA_USERNAME; *p; ++p) printable &= *p >= 33 && *p <= 126;
+    for (const unsigned char *p = (const unsigned char *)OTA_PASSWORD; *p; ++p) printable &= *p >= 32 && *p <= 126;
+    if (!printable) {
+      snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "OTA needs private printable ASCII credentials");
+      lastSetupFailureCode = -1; return false;
+    }
+  }
+  if (!MQTT_HOST || !MQTT_USERNAME || !MQTT_PASSWORD || !MQTT_BASE_TOPIC ||
+      strlen(MQTT_HOST) > 253 || strlen(MQTT_USERNAME) > 128 || strlen(MQTT_PASSWORD) > 128 ||
+      strlen(MQTT_BASE_TOPIC) < 1 || strlen(MQTT_BASE_TOPIC) > 64 ||
+      strchr(MQTT_BASE_TOPIC, '+') || strchr(MQTT_BASE_TOPIC, '#')) {
+    snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "Configure valid MQTT host, credentials and topic");
+    lastSetupFailureCode = -1; return false;
+  }
   for (size_t i = 0; i < SPD_COUNT; i++) {
     if (SPD_CONFIGS[i].id == 0 || SPD_CONFIGS[i].id > 127 || SPD_CONFIGS[i].secret == 0) {
       snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "Configure IDs 1..127 and nonzero beacon keys");
@@ -1325,6 +1357,46 @@ static void handleAlarmRelay() {
 // WI-FI AND WEB SERVER
 // =============================================================================
 
+static void firmwareMaintenance(bool active) {
+  mqttBridge.setPaused(active);
+  setRelay(false);
+  if (loraInitialized) {
+    if (active) radio.standby(); else radio.startReceive();
+    loraPacketFlag = false;
+  }
+  if (active) {
+    gfx->fillScreen(WHITE); gfx->setTextColor(BLACK); gfx->setTextSize(1);
+    gfx->setCursor(16, 50); gfx->print("Firmware update in progress");
+    gfx->setCursor(16, 72); gfx->print("Monitoring paused; relay OFF");
+    gfx->setCursor(16, 94); gfx->print("Keep power connected");
+    flushDisplay();
+  } else requestScreenRedraw();
+}
+
+static void mqttSpdSnapshot(size_t row, WspdMqttSpdSnapshot &out) {
+  if (SPD_LOCAL_ENABLED && row == 0) {
+    out.id = SPD_LOCAL_ID; out.name = SPD_LOCAL_FRIENDLYNAME; out.local = true;
+    out.seen = out.fresh = localSpd.seen; out.status = effectiveLocalStatusText(); return;
+  }
+  const size_t i = row - (SPD_LOCAL_ENABLED ? 1 : 0);
+  const SpdConfig &cfg = SPD_CONFIGS[i]; const SpdState &s = spdStates[i];
+  out.id = cfg.id; out.name = cfg.friendlyName; out.status = effectiveStatusText(s);
+  out.seen = s.seen; out.fresh = isFresh(s); out.batteryValid = s.batteryValid;
+  out.temperatureC = s.temperatureC <= -126 ? NAN : float(s.temperatureC);
+  out.batteryV = s.batteryVoltageV; out.rssiDbm = s.rssiDbm; out.snrDb = s.snrDb;
+  out.lossPercent = s.loss.total() ? s.loss.lossPercent() : NAN;
+  out.ageSeconds = s.seen ? ageSecondsFor(s) : 0;
+}
+static void mqttGatewaySnapshot(WspdMqttGatewaySnapshot &out) {
+  out.configured = SPD_TOTAL_COUNT; out.uptimeSeconds = (millis() - bootMs) / 1000UL; out.alarmMuted = alarmMuted;
+  if (SPD_LOCAL_ENABLED) { if (!localSpd.seen) ++out.unknown; else if (!localSpd.statusCode) ++out.failed; }
+  for (size_t i = 0; i < SPD_COUNT; ++i) {
+    if (!spdStates[i].seen) ++out.unknown;
+    else if (isStale(spdStates[i])) { ++out.stale; ++out.unknown; }
+    else if (!spdStates[i].statusCode) ++out.failed;
+  }
+}
+
 static void appendLocalSpdJson(String &out) {
   const char *status = effectiveLocalStatusText();
   out += "{";
@@ -1437,8 +1509,10 @@ static String buildApiJson() {
   String out;
   out.reserve(768 + SPD_TOTAL_COUNT * 800);
   out += "{";
+  out += "\"api_version\":1,";
   out += "\"generated_at_ms\":" + String(millis()) + ",";
   out += "\"gateway\":{";
+  out += "\"gateway_id\":\"" + String(gatewayId) + "\",";
   out += "\"server_version\":\"" + String(SERVER_VERSION) + "\",";
   out += "\"firmware_id\":\"" + String(SERVER_FIRMWARE_ID) + "\",";
   out += "\"ip\":\"" + ipString() + "\",";
@@ -1465,7 +1539,10 @@ static String buildApiJson() {
   out += "\"alarm_kind\":\"" + String(alarmKindText(alarmKind)) + "\",";
   out += "\"alarm_spd_fail\":" + String(alarmKind == ALARM_SPD_FAIL ? "true" : "false") + ",";
   out += "\"alarm_low_battery\":" + String(alarmKind == ALARM_LOW_BATTERY ? "true" : "false") + ",";
-  out += "\"alarm_muted\":" + String(alarmMuted ? "true" : "false");
+  out += "\"alarm_muted\":" + String(alarmMuted ? "true" : "false") + ",";
+  out += "\"ota\":{\"enabled\":" + String(firmwareOta.enabled() ? "true" : "false") + ",\"busy\":" + String(firmwareOta.busy() ? "true" : "false");
+  out += ",\"slot_size\":" + String(firmwareOta.slotSize()) + ",\"image_marker\":\"" + String(WSPD_OTA_IMAGE_MARKER) + "\"},";
+  out += "\"mqtt\":{\"enabled\":" + String(mqttBridge.enabled() ? "true" : "false") + ",\"connected\":" + String(mqttBridge.connected() ? "true" : "false") + "}";
   out += "},";
 
   out += "\"summary\":{";
@@ -1492,40 +1569,6 @@ static String buildApiJson() {
   out += "]}";
   return out;
 }
-
-static const char INDEX_HTML[] PROGMEM = R"HTML(
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SPD Monitor</title>
-<style>
-body{font-family:system-ui,Arial,sans-serif;margin:20px;background:#f8fafc;color:#0f172a}.top{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}button{padding:10px 14px;font-weight:700;border:1px solid #94a3b8;border-radius:8px;background:white}table{border-collapse:collapse;width:100%;margin-top:16px;background:white}th,td{border:1px solid #cbd5e1;padding:8px;text-align:left;white-space:nowrap}th{background:#e2e8f0}.fail{background:#fee2e2}.battery-low{background:#ffedd5}.ok{background:#dcfce7}.stale,.unknown{background:#ffffff}.muted{color:#64748b}.pill{font-weight:700}.stats{display:flex;gap:10px;flex-wrap:wrap}.stat{background:white;border:1px solid #cbd5e1;border-radius:8px;padding:10px}.alarm{background:#fee2e2;border:1px solid #ef4444;border-radius:8px;padding:10px;font-weight:700}.hidden{display:none}.local-cell{text-align:center;font-weight:700;letter-spacing:.08em;color:#334155}
-</style>
-</head>
-<body>
-<div class="top"><div><h1>SPD Monitor</h1><div class="muted">T-Connect Pro LoRa receiver</div></div><div><button id="muteBtn" onclick="toggleMute()">MUTE</button></div></div>
-<p id="alarm" class="alarm hidden">ALARM</p>
-<div id="stats" class="stats"></div>
-<table><thead><tr><th>Status</th><th>ID</th><th>Name</th><th>HW/FW</th><th>Temp</th><th>RSSI</th><th>SNR</th><th>Battery</th><th>Loss</th><th>Age</th></tr></thead><tbody id="body"></tbody></table>
-<p class="muted" id="meta"></p>
-<script>
-let latest=null;
-function fmt(v,s='',d=null){if(v===null||v===undefined)return '—'; let n=Number(v); if(Number.isNaN(n))return '—'; return (d===null?n:n.toFixed(d))+s;}
-function age(s){if(s===null||s===undefined)return 'never'; s=Number(s); if(s<60)return Math.round(s)+'s'; if(s<3600)return Math.round(s/60)+'m'; return Math.round(s/3600)+'h';}
-function rowClass(x){if(x.status==='FAIL')return 'fail'; if(x.battery_low_alarm)return 'battery-low'; if(x.status==='OK')return 'ok'; if(x.status==='STALE')return 'stale'; return 'unknown';}
-function loss(spd){if(!spd.packet_loss_window_total)return '—'; let p=Number(spd.packet_loss_percent||0); return p.toFixed(p<10?1:0)+'% ('+spd.packet_loss_window_missed+'/'+spd.packet_loss_window_total+')';}
-function esc(s){return String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');}
-function rowHtml(x){let cls=rowClass(x);let id=String(x.spd_id).padStart(3,'0');let name=esc(x.friendly_name);if(x.local||x.source==='local'){return '<tr class="'+cls+'"><td class="pill">'+x.status+'</td><td>'+id+'</td><td>'+name+'</td><td colspan="7" class="local-cell">LOCAL</td></tr>';}return '<tr class="'+cls+'"><td class="pill">'+x.status+'</td><td>'+id+'</td><td>'+name+'</td><td>'+fmt(x.hardware_version)+'/'+fmt(x.firmware_version)+'</td><td>'+fmt(x.temperature_c,'C')+'</td><td>'+fmt(x.rssi_dbm,' dBm',0)+'</td><td>'+fmt(x.snr_db,' dB',1)+'</td><td>'+(x.battery_voltage_v==null?'—':Number(x.battery_voltage_v).toFixed(2)+' V'+(x.battery_low_alarm?' LOW':''))+'</td><td>'+loss(x)+'</td><td>'+age(x.age_seconds)+'</td></tr>';}
-async function load(){let r=await fetch('/api/v1/get',{cache:'no-store'}); latest=await r.json(); render();}
-function render(){let g=latest.gateway,s=latest.summary; document.getElementById('alarm').classList.toggle('hidden',!g.alarm_active); document.getElementById('alarm').textContent=g.alarm_active?((g.alarm_kind==='spd_fail'?'SPD FAIL ALARM':'LOW BATTERY ALARM')+(g.alarm_muted?' MUTED':'')):''; document.getElementById('muteBtn').textContent=g.alarm_muted?'UNMUTE':'MUTE'; document.getElementById('stats').innerHTML=['configured','seen','ok','fail','unknown','stale','low_battery'].map(k=>'<div class="stat"><b>'+k+'</b><br>'+s[k]+'</div>').join(''); document.getElementById('meta').textContent=g.firmware_id+' • IP '+g.ip+' • uptime '+age(g.uptime_seconds)+' • valid '+g.total_valid_packets+' • invalid '+g.total_invalid_packets+' • LoRa '+g.lora_freq_mhz+' MHz SF'+g.lora_sf+(g.local_spd_enabled?' • local IO'+g.local_spd_pin:''); document.getElementById('body').innerHTML=latest.spds.map(rowHtml).join('');}
-async function toggleMute(){let v=latest&&latest.gateway&&latest.gateway.alarm_muted?'0':'1'; await fetch('/api/v1/mute?value='+v,{method:'POST'}); await load();}
-load(); setInterval(load,5000);
-</script>
-</body>
-</html>
-)HTML";
 
 static void sendJson(int code, const String &body) {
   server.sendHeader("Cache-Control", "no-store");
@@ -1556,6 +1599,9 @@ static void handleHealthz() {
 }
 
 static bool setupWebServer() {
+  const char *headers[] = {"Authorization", "X-WSPD-Update"};
+  server.collectHeaders(headers, 2);
+  firmwareOta.setup();
   server.on("/", HTTP_GET, handleIndex);
   server.on("/index.html", HTTP_GET, handleIndex);
   server.on("/api/v1/get", HTTP_GET, handleApiGet);
@@ -1619,6 +1665,7 @@ static bool setupWiFi() {
 
 void setup() {
   bootMs = millis();
+  snprintf(gatewayId, sizeof(gatewayId), "wspd-%012llx", (unsigned long long)ESP.getEfuseMac());
   Serial.begin(115200);
   delay(200);
   Serial.println();
@@ -1658,6 +1705,10 @@ void setup() {
     fatalBootError(lastSetupFailureCode, "LoRa SX1262", lastSetupFailureText[0] ? lastSetupFailureText : "LoRa initialization failed");
   }
 
+  if (!mqttBridge.begin(gatewayId, SERVER_FIRMWARE_ID, ipString().c_str(), SPD_TOTAL_COUNT,
+                        mqttSpdSnapshot, mqttGatewaySnapshot)) {
+    bootLogLine(RED, "MQTT: initialization failed; monitoring continues");
+  } else if (mqttBridge.enabled()) bootLogLine(BLACK, "MQTT: discovery prepared for station LAN");
   bootLogLine(DARKGREEN, "Boot: complete");
   delay(1200);
 
@@ -1669,10 +1720,13 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  firmwareOta.loop(millis());
+  if (firmwareOta.busy()) { setRelay(false); return; }
   handleLoRa();
   handleLocalSpd();
   handleTouch();
   handleAlarmRelay();
+  mqttBridge.loop(millis(), WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED);
 
   const uint32_t now = millis();
   if (displayPages.advance(now)) {

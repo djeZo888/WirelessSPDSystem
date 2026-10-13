@@ -11,7 +11,7 @@ may need Rosetta 2.
 | Target | Core | Libraries |
 | --- | --- | --- |
 | `acdc`, `battery` | DxCore 1.6.2 | RadioLib 7.8.1; pinned usha256 |
-| `server` | ESP32 2.0.14 | RadioLib 7.8.1; GFX Library for Arduino 1.4.6 |
+| `server` | ESP32 3.3.12 | RadioLib 7.8.1; GFX Library for Arduino 1.6.9; PubSubClient 2.8 |
 
 Use `python3 tools/firmware.py setup acdc` (or `battery` / `server`).
 The two beacons share dependencies, so one beacon setup is sufficient.
@@ -108,7 +108,7 @@ For an existing receiver config, remove `LORA_BW_KHZ`, `LORA_CR`,
 Copy any new display and touch settings from the updated
 `config.example.h` into your existing private `config.h`; keep your credentials
 and beacon entries. Rebuild after configuration changes. The LCD identifies this
-receiver release as **v0.1-tconnpro**; see its [changelog](../firmware/servers/tconnectpro_868/CHANGELOG.md).
+receiver release as **v0.2-tconnpro**; see its [changelog](../firmware/servers/tconnectpro_868/CHANGELOG.md).
 
 Connect the ESP32 USB port with a data cable, find its port with
 `arduino-cli board list`, then:
@@ -121,7 +121,7 @@ python3 tools/firmware.py flash server --port /dev/cu.usbmodemYOUR_PORT
 Use the actual port (`COMn` on Windows). If upload cannot enter the bootloader,
 hold BOOT, press/release RESET, then release BOOT and retry. Settings are ESP32S3
 Dev Module, 16 MB flash, 3 MB APP / 9.9 MB FATFS partition, QIO 80 MHz, OPI PSRAM,
-USB CDC enabled, 921600 upload; the script supplies the exact board options.
+USB CDC enabled, 460800 upload; the script supplies the exact board options.
 
 Open the IP shown on screen/Serial. Without a Wi-Fi connection, join the configured
 fallback AP and open its displayed IP. Check the display and dashboard identify

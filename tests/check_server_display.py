@@ -110,6 +110,11 @@ void requestScreenRedraw() { screenDirty = true; }
 void digitalWrite(int, int) {}
 struct SerialShim { void printf(const char *, ...) {} } Serial;
 struct ServerShim { void handleClient() {} } server;
+struct OtaShim { void loop(uint32_t) {} bool busy() { return false; } } firmwareOta;
+struct MqttShim { void loop(uint32_t, bool) {} } mqttBridge;
+constexpr int WIFI_STA = 1, WL_CONNECTED = 1;
+struct WifiShim { int getMode() { return WIFI_STA; } int status() { return WL_CONNECTED; } } WiFi;
+void setRelay(bool) {}
 void handleLoRa() {}
 void handleLocalSpd() {}
 bool pollTouchLandscape(bool &down, int16_t &x, int16_t &y) {
@@ -138,7 +143,7 @@ bool textContains(const char *needle) {
   return false;
 }
 void checkVersionLabel(int16_t x, int16_t y) {
-  assert(strcmp(SERVER_FIRMWARE_ID, "v0.1-tconnpro") == 0);
+  assert(strcmp(SERVER_FIRMWARE_ID, "v0.2-tconnpro") == 0);
   size_t labels = 0;
   for (const auto &item : graphics.printed) {
     if (item.text == SERVER_FIRMWARE_ID) {

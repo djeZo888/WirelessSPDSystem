@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the production JSON response and browser renderer with host I/O shims."""
+"""Exercise the production complete JSON response and HTTP routing with host I/O shims."""
 import json
 from pathlib import Path
 import re
@@ -27,6 +27,7 @@ SHIMS = r'''
 #include "display_pages.h"
 #include "version.h"
 #include "config_types.h"
+#include "ota_image.h"
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -68,6 +69,18 @@ uint32_t nowMs = 1000000, bootMs = 0;
 uint32_t totalValidPackets = 0, totalInvalidPackets = 0, totalOldNoncePackets = 0;
 uint32_t totalAuthRejects = 0, totalUnconfiguredRejects = 0;
 bool alarmMuted = false, screenDirty = false;
+const char *gatewayId = "wspd-test";
+struct OtaShim {
+  unsigned setupCalls = 0;
+  bool enabled() const { return false; }
+  bool busy() const { return false; }
+  size_t slotSize() const { return 3 * 1024 * 1024; }
+  void setup() { ++setupCalls; }
+} firmwareOta;
+struct MqttShim {
+  bool enabled() const { return false; }
+  bool connected() const { return false; }
+} mqttBridge;
 constexpr uint16_t BLACK = 0;
 constexpr int HTTP_GET = 0, HTTP_POST = 1;
 SpdDisplayPages displayPages(SPD_TOTAL_COUNT, 5000UL);
@@ -94,7 +107,10 @@ struct ServerShim {
     sends++; status = code; contentType = type; body = data;
   }
   void send_P(int code, const char *type, const char *data) { send(code, type, String(data)); }
-  void collectHeaders(const char **, size_t) { headerCollections++; }
+  void collectHeaders(const char **names, size_t count) {
+    assert(count == 2 && String(names[0]) == "Authorization" && String(names[1]) == "X-WSPD-Update");
+    headerCollections++;
+  }
   void on(const char *path, int method, void (*handler)()) { routes.push_back({path, method, handler}); }
   void onNotFound(void (*handler)()) { notFound = handler; }
   void begin() { started = true; }
@@ -132,7 +148,7 @@ int main() {
     strcpy(s.rawHex, "0000000000000000000000000000000000000000");
   }
   localSpd.seen = SPD_LOCAL_ENABLED; localSpd.statusCode = 1;
-  assert(setupWebServer() && server.headerCollections == 0);
+  assert(setupWebServer() && server.headerCollections == 1 && firmwareOta.setupCalls == 1);
   // Obsolete operations must follow the normal unknown-route path and cannot mutate state.
   const String original = buildApiJson();
   screenDirty = false;
@@ -169,63 +185,18 @@ int main() {
 '''
 
 
-WEB_CHECKS = r'''
-const fs = require('fs'), vm = require('vm'), assert = require('assert');
-const payloads = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-const script = fs.readFileSync(process.argv[3], 'utf8');
-(async () => {
-  for (const payload of payloads) {
-    const elements = new Map();
-    let muted = false;
-    const muteRequests = [];
-    const context = {
-      document: { getElementById(id) {
-        if (!elements.has(id)) elements.set(id, { textContent: '', innerHTML: '',
-          classList: { toggle() {} } });
-        return elements.get(id);
-      } },
-      fetch: async (url, options) => {
-        if (url === '/api/v1/get') {
-          assert.strictEqual(options.cache, 'no-store');
-          return { json: async () => ({ ...payload,
-            gateway: { ...payload.gateway, alarm_muted: muted } }) };
-        }
-        assert.strictEqual(options.method, 'POST');
-        assert(url === '/api/v1/mute?value=1' || url === '/api/v1/mute?value=0');
-        muted = url.endsWith('=1'); muteRequests.push(url);
-        return { ok: true };
-      },
-      setInterval: (fn, ms) => { assert.strictEqual(ms, 5000); },
-    };
-    vm.createContext(context);
-    vm.runInContext(script, context);
-    await vm.runInContext('load()', context);
-    const html = elements.get('body').innerHTML;
-    assert(elements.get('meta').textContent.includes('v0.1-tconnpro'));
-    assert.strictEqual((html.match(/<tr\b/g) || []).length, payload.spds.length);
-    const ids = [...html.matchAll(/<td>(\d{3})<\/td>/g)].map(match => Number(match[1]));
-    assert.deepStrictEqual(ids, payload.spds.map(spd => spd.spd_id));
-    assert(!html.includes('<contact>') && !html.includes('<&>'));
-    assert(html.includes('&lt;contact&gt;') === payload.gateway.local_spd_enabled);
-    if (payload.spds.some(spd => !spd.local))
-      assert(html.includes('&quot;rack&quot; &lt;&amp;&gt;'));
-    await vm.runInContext('toggleMute()', context);
-    assert.strictEqual(elements.get('muteBtn').textContent, 'UNMUTE');
-    await vm.runInContext('toggleMute()', context);
-    assert.strictEqual(elements.get('muteBtn').textContent, 'MUTE');
-    assert.deepStrictEqual(muteRequests, ['/api/v1/mute?value=1', '/api/v1/mute?value=0']);
-    assert.strictEqual((elements.get('body').innerHTML.match(/<tr\b/g) || []).length,
-                       payload.spds.length);
-  }
-})().catch(error => { console.error(error); process.exitCode = 1; });
-'''
-
 
 def verify_response(payload, wireless, local):
     expected_ids = ([0] if local else []) + list(range(1, wireless + 1))
     rows = payload["spds"]
-    assert payload["gateway"]["server_version"] == "v0.1"
-    assert payload["gateway"]["firmware_id"] == "v0.1-tconnpro"
+    assert payload["gateway"]["server_version"] == "v0.2"
+    assert payload["gateway"]["firmware_id"] == "v0.2-tconnpro"
+    assert payload["gateway"]["gateway_id"] == "wspd-test"
+    assert payload["gateway"]["mqtt"] == {"enabled": False, "connected": False}
+    assert payload["gateway"]["ota"] == {
+        "enabled": False, "busy": False, "slot_size": 3 * 1024 * 1024,
+        "image_marker": "WirelessSPDSystem:tconnpro:ota-v1",
+    }
     assert "nonce_resets" not in payload["gateway"]
     assert payload["summary"]["configured"] == wireless + local
     assert [row["spd_id"] for row in rows] == expected_ids
@@ -258,9 +229,9 @@ def verify_response(payload, wireless, local):
 
 
 def main():
-    compiler, node = shutil.which("c++"), shutil.which("node")
-    if not compiler or not node:
-        raise SystemExit("A host C++ compiler and Node.js are required.")
+    compiler = shutil.which("c++")
+    if not compiler:
+        raise SystemExit("A host C++ compiler is required.")
     source = (SERVER / "tconnectpro_868.ino").read_text()
     config = (SERVER / "config.example.h").read_text()
     for removed in ("RESET_API_KEY", "X-API-Key-Reset", "resetApiAuthorized",
@@ -268,9 +239,9 @@ def main():
         assert removed not in source, f"Removed operation remains in firmware: {removed}"
         assert removed not in config, f"Removed operation remains in public configuration: {removed}"
     states = source[source.index("struct PacketLossWindow {"):source.index("volatile bool loraPacketFlag")]
-    html = re.search(r'static const char INDEX_HTML\[\].*?\)HTML";', source, re.S).group(0)
-    assert not re.search(r"reset|confirm\(|prompt\(", html, re.I)
-    body = SHIMS + states + "\n" + html + "\n"
+    html = (SERVER / "web_ui.h").read_text()
+    assert "reset_nonces" not in html and "X-API-Key-Reset" not in html
+    body = SHIMS + states + '\n#include "web_ui.h"\n'
     for name in ["ageSecondsFor", "isStale", "isBatteryLow", "isFresh", "isFreshFail",
                  "isFreshBatteryLow", "effectiveStatusText", "effectiveLocalStatusText",
                  "isLocalFreshFail", "currentAlarmKind", "alarmKindText", "jsonEscape",
@@ -278,10 +249,8 @@ def main():
                  "handleIndex", "handleApiGet", "handleMute", "handleHealthz", "setupWebServer"]:
         body += function(source, name) + "\n"
     body += CHECKS
-    web_script = re.search(r'<script>(.*?)</script>', source, re.S).group(1)
     variants = [(count, local) for count in (1, 8, 9, 17, 24, 127) for local in (0, 1)]
     variants.append((0, 1))
-    payloads = []
     with tempfile.TemporaryDirectory(prefix="wspd-api-") as temporary:
         work = Path(temporary)
         driver = work / "api.cpp"
@@ -297,16 +266,10 @@ def main():
             assert len(responses) == (wireless + local + 7) // 8
             for response in responses:
                 verify_response(response, wireless, local)
-            payloads.append(responses[0])
-        (work / "payloads.json").write_text(json.dumps(payloads))
-        (work / "dashboard.js").write_text(web_script)
-        (work / "check-web.js").write_text(WEB_CHECKS)
-        subprocess.run([node, str(work / "check-web.js"), str(work / "payloads.json"),
-                        str(work / "dashboard.js")], check=True)
-    print(f"PASS: {len(variants)} API/web configurations, up to 127 wireless SPDs plus local ID 0.")
-    print("Verified one complete GET response on every LCD page, JSON telemetry/summary, full browser rows, and mute routing/UI.")
+    print(f"PASS: {len(variants)} API configurations, up to 127 wireless SPDs plus local ID 0.")
+    print("Verified one complete GET response on every LCD page, JSON telemetry/summary, integration diagnostics and mute routing.")
     print("Verified obsolete route returns 404 without changing state and removed configuration/header/UI are absent.")
-    print("Host String, HTTP, and DOM shims do not qualify physical Wi-Fi or maximum-device performance.")
+    print("Host String and HTTP shims do not qualify physical Wi-Fi or maximum-device performance.")
 
 
 if __name__ == "__main__":

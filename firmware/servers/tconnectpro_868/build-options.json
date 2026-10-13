@@ -1,4 +1,5 @@
 {
-  "core": "esp32:esp32@2.0.14",
-  "fqbn": "esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CDCOnBoot=cdc,USBMode=hwcdc,FlashMode=qio,UploadSpeed=921600"
+  "core": "esp32:esp32@3.3.12",
+  "fqbn": "esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CDCOnBoot=cdc,USBMode=hwcdc,FlashMode=qio,UploadSpeed=460800",
+  "graphics_library": "GFX Library for Arduino@1.6.9"
 }
