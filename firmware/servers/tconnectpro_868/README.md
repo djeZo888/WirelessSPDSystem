@@ -4,9 +4,9 @@ Firmware for **LILYGO T Connect Pro V1.0**, ESP32-S3-R8, 16 MB flash / 8 MB OPI
 PSRAM, 868 MHz SX1262, ST7796 LCD and CST226SE touch. It accepts both
 [AC-DC](../../beacons/acdc_avr128da32) and
 [battery](../../beacons/battery_avr128db32) beacon firmware using the
-[20-byte authenticated protocol](../../../docs/protocol.md).
+[20-byte authenticated protocol](../../../docs/protocol.md). The [API reference](../../../docs/api.md) documents the full-list response and controls.
 
-Receiver firmware starts at **v0.1**, shown on the LCD as **v0.1-tconnpro**.
+Receiver firmware is **v0.2**, shown on the LCD as **v0.2-tconnpro**.
 See the [receiver changelog](CHANGELOG.md). This version is separate from beacon
 HW/FW fields in LoRa packets and the repository's `v0.1.0` release.
 
@@ -17,6 +17,11 @@ wireless beacons plus one local contact** can be configured. The optional local
 contact is first, followed by beacons in `SPD_CONFIGS` order. Reception, alarms and the web
 dashboard cover all configured SPDs, including those on another LCD page.
 The first page interval starts after boot completes.
+
+The web dashboard adapts to phones and desktops, with status summaries, search,
+filters and expandable diagnostics. See [Home Assistant setup](../../../docs/home-assistant.md)
+for MQTT discovery or a REST example, and [network firmware updates](../../../docs/network-updates.md)
+for authenticated browser uploads after the first USB installation.
 
 ## Build and flash
 
@@ -43,6 +48,9 @@ the `.ino` does not need editing:
 | `SPD_LOCAL_ID` | Leave **-1** to disable the local input, or choose an unused ID **0–127**. ID 0 is available only for the local contact, allowing 128 total rows. |
 | `DISPLAY_PAGE_SECONDS` | Seconds on each LCD page: **1–3600**, default **5**. The page size stays at eight rows. |
 | `DISPLAY_PERIODIC_REFRESH_MS`, `TOUCH_*_MS` | Optional LCD refresh and touch timing adjustments; keep the example defaults unless needed. |
+| `OTA_ENABLED`, `OTA_USERNAME`, `OTA_PASSWORD` | Network updates default to disabled. When enabled, use a 1–32 nonspace ASCII username without a colon and a private 12–64 printable ASCII password. |
+| `MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME`, `MQTT_PASSWORD` | Optional Home Assistant broker on the station LAN. An empty host disables MQTT; port 1–65535, default 1883. |
+| `MQTT_BASE_TOPIC`, `MQTT_PUBLISH_SECONDS` | Discovery/state root (1–64 bytes, no `+` or `#`); publish interval 1–3600 seconds, default 10. |
 | `CONFIGURED` | Set to **true** after completing the configuration. |
 
 Use the same random four-byte secret for all beacons in the home and repeat it in their registrations. Existing per-beacon keys remain supported. Friendly
@@ -56,9 +64,9 @@ Frequency and spreading factor must match: this SX1262 receives one of each at
 a time. Existing configs must remove `LORA_BW_KHZ`, `LORA_CR`, `LORA_SYNCWORD`,
 `LORA_PREAMBLE` and `LORA_CRC_ENABLED`, now fixed in the sketch.
 
-When upgrading an existing configuration, copy the new display and touch
-settings from `config.example.h` into your private `config.h`, preserving your
-credentials and beacon list. These settings are applied when compiling; rebuild
+When upgrading, add the new OTA and MQTT fields from `config.example.h` to
+private `config.h`, preserving your Wi-Fi credentials, beacon list and display
+settings. Keep updates disabled until their private login is configured. These settings are applied when compiling; rebuild
 and flash after changing the page interval.
 
 Connect the board's ESP32 USB port using a **data cable**. Find its port, build
@@ -77,7 +85,7 @@ the bootloader, hold **BOOT**, press/release **RESET**, release BOOT, then retry
 Open Serial Monitor at **115200 baud** for boot and packet diagnostics.
 
 The setup script isolates pinned dependencies in ignored `.arduino/`:
-**ESP32 core 2.0.14**, **RadioLib 7.8.1**, **GFX Library for Arduino 1.4.6**.
+**ESP32 core 3.3.12**, **RadioLib 7.8.1**, **GFX Library for Arduino 1.6.9** and **PubSubClient 2.8**.
 Touch uses `Wire` directly; no separate touch library is needed.
 `python3 tools/firmware.py validate server` compiles an isolated synthetic
 configuration with 127 wireless beacons plus the local contact for development
@@ -85,7 +93,8 @@ checks; its images are never selected by `flash`. Run
 `python3 tests/check_server_display.py` to check paging and off-page alarms, and
 `python3 tests/check_server_api.py` to check the complete API/web list on the
 host without a connected board. These development tests require a C++ compiler;
-the API/web test also requires Node.js.
+the API/dashboard tests also require Node.js. OTA host checks require OpenSSL
+development headers; these are not device dependencies.
 
 ### Arduino IDE
 
@@ -103,7 +112,7 @@ Open [tconnectpro_868.ino](tconnectpro_868.ino) with your adjacent
 | PSRAM | OPI PSRAM |
 | USB Mode | Hardware CDC and JTAG |
 | USB CDC On Boot | Enabled |
-| Upload Speed | 921600 |
+| Upload Speed | 460800 |
 | CPU Frequency | 240 MHz |
 
 The CLI uses the exact FQBN in [build-options.json](build-options.json). Its
@@ -126,9 +135,11 @@ there are no API pages to fetch. This firmware uses Wi-Fi; Ethernet is unused.
 | `GET /` | Dashboard and MUTE/UNMUTE controls. |
 | `GET /api/v1/get` | JSON: `gateway` diagnostics, `summary` counts and every entry in `spds`. Includes status, telemetry, age, nonce, raw packet and packet-loss statistics. |
 | `POST /api/v1/mute?value=1` | Mute the relay; use `value=0` to unmute. Omitting `value` toggles mute. |
+| `POST /api/v1/firmware` | Authenticated, checked multipart application update; see the network update guide. |
 | `GET /healthz` | Returns `{"status":"ok"}` while the web handler is running. |
 
-The HTTP server has no TLS or login; dashboard reads and mute are unauthenticated.
+The HTTP server has no TLS or login; dashboard reads and mute are unauthenticated. Firmware uploads require their
+separate private login and request header.
 Use it on a trusted network.
 
 ## State and alarms
@@ -157,7 +168,8 @@ With the default settings:
 | Any fresh battery reading below **2.95 V** | Highlighted row and relay active **500 ms per minute**. FAIL takes priority. |
 | UNKNOWN or STALE | Informational status; no relay alarm. |
 
-MUTE disables the relay while status and visual warnings continue. Alarms are
+MUTE disables the relay while status and visual warnings continue; it does not
+persist across receiver reboot. Alarms are
 evaluated across the whole configuration, independent of the current LCD page.
 Relay periods and the battery threshold are configurable in `config.h`.
 

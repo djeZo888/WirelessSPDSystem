@@ -56,7 +56,8 @@ def setup(args, options):
     run(cli(args, "core", "install", options["core"], "--additional-urls", ",".join(URLS)))
     run(cli(args, "lib", "install", "RadioLib@7.8.1"))
     if args.target == "server":
-        run(cli(args, "lib", "install", "GFX Library for Arduino@1.4.6"))
+        run(cli(args, "lib", "install", options.get("graphics_library", "GFX Library for Arduino@1.4.6")))
+        run(cli(args, "lib", "install", "PubSubClient@2.8"))
     else:
         library = args.sha_library
         library.parent.mkdir(parents=True, exist_ok=True)
@@ -80,6 +81,9 @@ def validation_config(sketch, server):
         content = content.replace("CONFIGURED = false", "CONFIGURED = true")
         content = content.replace("0x00000000UL", "0x7C9E4A21UL")
         content = content.replace('"CHANGE_ME_AP_PASSWORD"', '"validation-only-ap"')
+        content = content.replace("OTA_ENABLED = false", "OTA_ENABLED = true")
+        content = content.replace('OTA_PASSWORD = ""', 'OTA_PASSWORD = "validation-only-update-password"')
+        content = content.replace('MQTT_HOST = ""', 'MQTT_HOST = "127.0.0.1"')
         # Exercise the largest addressable list, including a local row and
         # multiple LCD pages. These synthetic credentials are never flashed.
         entries = ",\n".join(

@@ -6,7 +6,8 @@ Compile-only checks use synthetic credentials:
 | --- | ---: | ---: | --- |
 | AC-DC AVR128DA32 · sleep, LED mode 1 | 42,636 / 131,072 bytes | 1,543 / 16,384 bytes | Passed |
 | Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
-| T Connect Pro v0.1 · 127 wireless + local | 862,429 / 3,145,728 bytes | 186,920 / 327,680 bytes | Passed |
+| T Connect Pro v0.2 · core 3.3.12, 127 wireless + local | 1,108,386 / 3,145,728 bytes | 191,356 / 327,680 bytes | Passed |
+| T Connect Pro v0.2 · core 2.0.14 compatibility | 934,773 / 3,145,728 bytes | 187,968 / 327,680 bytes | Passed |
 
 Pinned cores, libraries and board options are listed in the flashing guide and
 each project's `build-options.json`. Beacon
@@ -22,21 +23,40 @@ after setup, and check publishable files with `python3 tools/check_repository.py
 GitHub Actions repeats all three builds for pushes and pull requests.
 Run `python3 tests/check_packet_compatibility.py` to repeat the host packet checks.
 Server validation builds configure all 127 wireless IDs plus local ID 0, so the
-build check exercises multiple pages and the maximum configured state array.
+build check exercises multiple pages, the maximum state array and enabled OTA/MQTT paths with synthetic credentials.
 Run `python3 tests/check_server_display.py` for the paging regression checks:
 the actual LCD renderer, loop, alarm scan and mute touch handler run with host I/O
 shims across 17 local/wireless configurations. Checks include complete row coverage,
 partial pages, off-page alarms, 2/5/10-second timing, clock rollover, touch
 debounce and the displayed version. Invalid page intervals are rejected at
 compile time. Run `python3 tests/check_server_api.py` to check the actual JSON
-builder, HTTP routing and mute controls, then execute the embedded web rendering
-in Node.js across 13 configurations, including all 128 rows. Every LCD page
+builder, HTTP routing and mute controls across 13 configurations, including all
+128 rows. `python3 tests/check_server_dashboard.py` executes the web script in
+Node.js, checking full row coverage, filters, escaping, connection/mute failures,
+OTA progress and SHA-256 against standard and 3 MB test vectors. Every LCD page
 returns the same complete API list; the web displays every row and the firmware
 version, and its mute button works. These checks also run in CI;
-AddressSanitizer/UBSan check host memory
-access. Host shims do not verify physical LCD/touch, Wi-Fi transport or
+AddressSanitizer/UBSan check host memory access. Host shims do not verify physical LCD/touch, Wi-Fi transport or
 performance at scale.
 Pinned dependency code emits some compiler warnings; the builds still pass.
+
+`python3 tests/check_server_ota.py` exercises the actual handler with OpenSSL-backed
+host SHA-256 adapters for MbedTLS 2/3: 65 scenarios each, covering authentication,
+CSRF, image/hash/length rejection, cancellation, writes/finalization failures,
+multiple files, timeout rollover, immediate early-rejection connection closure
+and activation/restart order. Another 41 checks
+exercise the production validator's OTA credentials and MQTT configuration limits. Host shims do not
+verify physical flash/bootloader behavior or real HTTP multipart parsing.
+`python3 tests/check_server_mqtt.py` checks discovery, retained full-list telemetry,
+availability, broker failure/backoff, Home Assistant birth and OTA pause across
+seven configurations, including 128 rows and maximum strings. Host checks do not
+replace a deployed broker/Home Assistant test.
+
+The v0.1 receiver was flashed with Arduino IDE 2.3.10 / ESP32 core 3.3.12 /
+Arduino_GFX 1.6.9 at 460800 baud on 13 October 2026. Display/touch/AP/LoRa boot
+passed, and five authenticated ID 1 packets arrived 23.5–39.7 seconds apart with
+consecutive nonces and 0% observed loss. The user confirmed the LCD. This evidence
+does not establish physical v0.2 OTA or Home Assistant operation.
 
 Persistent-nonce firmware 1 is tested with
 `python3 tests/check_persistent_nonce.py`: 5,140 checks including 126 simulated
@@ -50,7 +70,8 @@ The receiver's nonce comparison and 20-byte frame remain compatible.
 The original system was reported working by its author with both beacon variants.
 An earlier AC-DC preproduction build has passed flash readback, fuse and nonce-journal
 checks. The operator confirmed TX LED timing and SPD OK/FAIL LED indications.
-The sleep revision has not been flashed. Receiver reception and physical power-loss checks remain open. Battery standby
+The sleep revision has not been flashed. Full RF coverage and physical power-loss
+checks remain open. Battery standby
 current, fuse/clock/voltage operation, RF performance, actual contact/alarm behavior
 and actual board wiring remain hardware acceptance checks. The hardware guide
 uses the recovered full battery schematic and production Gerbers; the earlier
