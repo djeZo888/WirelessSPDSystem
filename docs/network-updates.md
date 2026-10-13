@@ -1,7 +1,7 @@
 # Network firmware updates
 
 The T Connect Pro receiver supports browser updates from **v0.2**. First install
-v0.2 over USB using the [flashing guide](flashing.md). Keep **16 MB flash** and
+the current receiver firmware over USB using the [flashing guide](flashing.md). Keep **16 MB flash** and
 **16M Flash (3MB APP / 9.9MB FATFS)**: this layout already contains two 3 MB
 application slots. An update writes the inactive slot.
 

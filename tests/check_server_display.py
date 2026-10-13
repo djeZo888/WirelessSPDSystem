@@ -143,7 +143,7 @@ bool textContains(const char *needle) {
   return false;
 }
 void checkVersionLabel(int16_t x, int16_t y) {
-  assert(strcmp(SERVER_FIRMWARE_ID, "v0.2-tconnpro") == 0);
+  assert(strcmp(SERVER_FIRMWARE_ID, "v0.2.1-tconnpro") == 0);
   size_t labels = 0;
   for (const auto &item : graphics.printed) {
     if (item.text == SERVER_FIRMWARE_ID) {

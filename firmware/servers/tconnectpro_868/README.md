@@ -6,7 +6,7 @@ PSRAM, 868 MHz SX1262, ST7796 LCD and CST226SE touch. It accepts both
 [battery](../../beacons/battery_avr128db32) beacon firmware using the
 [20-byte authenticated protocol](../../../docs/protocol.md). The [API reference](../../../docs/api.md) documents the full-list response and controls.
 
-Receiver firmware is **v0.2**, shown on the LCD as **v0.2-tconnpro**.
+Receiver firmware is **v0.2.1**, shown on the LCD as **v0.2.1-tconnpro**.
 See the [receiver changelog](CHANGELOG.md). This version is separate from beacon
 HW/FW fields in LoRa packets and the repository's `v0.1.0` release.
 

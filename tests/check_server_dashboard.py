@@ -38,7 +38,7 @@ vm.runInContext(TESTS,context).then(()=>console.log('Dashboard regression checks
 
 TESTS = r"""
 (async()=>{
-function fixture(total=128){return {gateway:{firmware_id:'v0.2-tconnpro',ip:'192.168.4.1',uptime_seconds:100,lora_freq_mhz:868,lora_sf:9,total_valid_packets:50,local_spd_pin:7,stale_after_seconds:120,alarm_active:false,alarm_muted:false,alarm_kind:'none',ota:{enabled:false,busy:false,slot_size:3145728}},summary:{},spds:Array.from({length:total},(_,id)=>({spd_id:id,friendly_name:id===1?'<img src=x onerror="alert(1)">':`Beacon ${id}`,local:id===0,source:id===0?'local':'lora',status:['OK','FAIL','STALE','UNKNOWN'][id%4],stale:id%4===2,status_code:id%4===0?1:null,temperature_c:id===1?-127:22,hardware_version:2,firmware_version:1,battery_voltage_v:id===0?null:3.31,battery_low_alarm:id%9===0&&id!==0,rssi_dbm:-93.5,snr_db:8.2,packet_count:12,packet_loss_window_total:20,packet_loss_window_missed:1,packet_loss_percent:5,total_skipped:1,age_seconds:18,last_reported_status:'OK',nonce_hex:'<nonce>',raw_hex:'<packet>'}))};}
+function fixture(total=128){return {gateway:{firmware_id:'v0.2.1-tconnpro',ip:'192.168.4.1',uptime_seconds:100,lora_freq_mhz:868,lora_sf:9,total_valid_packets:50,local_spd_pin:7,stale_after_seconds:120,alarm_active:false,alarm_muted:false,alarm_kind:'none',ota:{enabled:false,busy:false,slot_size:3145728}},summary:{},spds:Array.from({length:total},(_,id)=>({spd_id:id,friendly_name:id===1?'<img src=x onerror="alert(1)">':`Beacon ${id}`,local:id===0,source:id===0?'local':'lora',status:['OK','FAIL','STALE','UNKNOWN'][id%4],stale:id%4===2,status_code:id%4===0?1:null,temperature_c:id===1?-127:22,hardware_version:2,firmware_version:1,battery_voltage_v:id===0?null:3.31,battery_low_alarm:id%9===0&&id!==0,rssi_dbm:-93.5,snr_db:8.2,packet_count:12,packet_loss_window_total:20,packet_loss_window_missed:1,packet_loss_percent:5,total_skipped:1,age_seconds:18,last_reported_status:'OK',nonce_hex:'<nonce>',raw_hex:'<packet>'}))};}
 latest=fixture();connected=true;lastSuccess=new Date();render();renderConnection();
 assert.equal((node('body').innerHTML.match(/class="spdrow/g)||[]).length,128);
 assert.match(node('listCount').textContent,/Showing 128 of 128/);
@@ -51,7 +51,7 @@ assert.match(temperature({temperature_c:-127}),/NTC open/);assert.match(temperat
 assert.equal(temperature({local:true,temperature_c:0}),'—');assert.equal(temperature({temperature_c:null}),'—');
 assert.equal(age(null),'Not yet seen');assert.equal(age(0),'0 s ago');assert.equal(age(61),'1 min ago');
 assert.equal(rowClass({status:'FAIL',stale:true}),'stale');
-assert.match(node('footerVersion').textContent,/v0.2-tconnpro/);
+assert.match(node('footerVersion').textContent,/v0.2.1-tconnpro/);
 assert.match(node('apiCurl').textContent,/curl http:\/\/192\.168\.4\.1\/api\/v1\/get/);
 assert.match(node('mqttConnectionText').textContent,/MQTT is disabled/);
 latest.gateway.mqtt={enabled:true,connected:false};render();assert.match(node('mqttConnectionText').textContent,/broker disconnected/);

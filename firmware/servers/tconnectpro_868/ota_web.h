@@ -1,5 +1,6 @@
 #pragma once
 #include <WebServer.h>
+#include <esp_arduino_version.h>
 #include <Update.h>
 #include <esp_ota_ops.h>
 #include <mbedtls/sha256.h>
@@ -9,6 +10,18 @@
 class WspdWebServer : public WebServer {
 public:
   using WebServer::WebServer;
+  // Upload callbacks precede WebServer's per-request response reset. Discard
+  // the previous response's headers/framing before sending an early error.
+  void prepareUploadResponse() {
+    _contentLength = CONTENT_LENGTH_NOT_SET;
+    _chunked = false;
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    _clearResponseHeaders();
+    _responseCode = 0;
+#else
+    _responseHeaders = String();
+#endif
+  }
   // Core 2 returns a copy from client(); stop() on that copy does not close
   // the original shared connection. Stop the parser's client in both cores.
   void closeCurrentUpload() { _currentClient.stop(); }
@@ -75,6 +88,7 @@ private:
   }
   void rejectUpload() {
     if (!rejectedConnection_) {
+      server_.prepareUploadResponse();
       server_.sendHeader("Connection", "close");
       errorReply();
       rejectedConnection_ = true;

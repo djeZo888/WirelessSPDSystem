@@ -34,6 +34,7 @@ SHIMS = r'''
 #include <vector>
 #include <openssl/evp.h>
 using std::min;
+constexpr size_t CONTENT_LENGTH_NOT_SET = size_t(-2), CONTENT_LENGTH_UNKNOWN = size_t(-1);
 struct String : std::string {
   String() = default;
   String(const char *s) : std::string(s) {}
@@ -62,14 +63,34 @@ struct ClientShim {
 struct WebServer {
  protected:
   ClientShim _currentClient;
+  size_t _contentLength = CONTENT_LENGTH_NOT_SET;
+  bool _chunked = false;
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  struct RequestArgument { String key, value; RequestArgument *next = nullptr; };
+  RequestArgument *_responseHeaders = nullptr;
+  int _responseCode = 0;
+  void _clearResponseHeaders() {
+    while (_responseHeaders) { auto *next = _responseHeaders->next; delete _responseHeaders; _responseHeaders = next; }
+  }
+#else
+  String _responseHeaders;
+#endif
  public:
   HTTPUpload incoming;
   std::function<void()> requestHandler, uploadHandler;
   bool authenticated = true;
   unsigned authentications = 0, responses = 0;
-  std::map<std::string, String> fields, requestHeaders, responseHeaders;
+  std::map<std::string, String> fields, requestHeaders;
+  // Keep every emitted header occurrence; a map would hide stale duplicates.
+  std::vector<std::pair<String, String>> wireHeaders;
   int status = 0;
-  String body;
+  String body, wireBody;
+  int responseCodeBeforeSend = 0;
+  ~WebServer() {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    _clearResponseHeaders();
+#endif
+  }
   // Mirror the core 2 copy-returning API: closing its temporary would leave the
   // parser's original client live. The production subclass must close original.
 #if MBEDTLS_VERSION_MAJOR >= 3
@@ -78,7 +99,32 @@ struct WebServer {
   ClientShim client() { return _currentClient; }
 #endif
   unsigned clientStops() { return _currentClient.stops; }
-  void newConnection() { _currentClient.live = true; responseHeaders.clear(); }
+  void newConnection() { _currentClient.live = true; }
+  void prepareFinalHandler() {
+    // Like handleClient(), this happens after multipart parsing succeeds.
+    _contentLength = CONTENT_LENGTH_NOT_SET;
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    _clearResponseHeaders(); _responseCode = 0;
+#endif
+  }
+  void poisonPreviousResponse(bool chunked) {
+    _contentLength = chunked ? CONTENT_LENGTH_UNKNOWN : 2689;
+    _chunked = chunked;
+    sendHeader("Content-Length", "2689");
+    sendHeader("X-Previous-Response", "stale-value");
+    sendHeader("Cache-Control", "stale-cache");
+    sendHeader("WWW-Authenticate", "stale-realm");
+    if (chunked) sendHeader("Transfer-Encoding", "chunked");
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    _responseCode = 200;
+#endif
+  }
+  unsigned responseHeaderCount(const char *name) const {
+    unsigned count = 0; for (const auto &h : wireHeaders) count += h.first == name; return count;
+  }
+  String responseHeader(const char *name) const {
+    for (const auto &h : wireHeaders) if (h.first == name) return h.second; return "";
+  }
   void on(const char *path, int method, std::function<void()> request, std::function<void()> upload) {
     assert(String(path) == "/api/v1/firmware" && method == HTTP_POST);
     requestHandler = request; uploadHandler = upload;
@@ -91,10 +137,41 @@ struct WebServer {
   String header(const char *name) { return requestHeaders[name]; }
   bool hasArg(const char *name) { return fields.count(name); }
   String arg(const char *name) { return fields[name]; }
-  void sendHeader(const char *name, const char *value) { responseHeaders[name] = value; }
+  void sendHeader(const char *name, const char *value, bool first = false) {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    auto *header = new RequestArgument(); header->key = name; header->value = value;
+    if (!_responseHeaders || first) { header->next = _responseHeaders; _responseHeaders = header; }
+    else { auto *last = _responseHeaders; while (last->next) last = last->next; last->next = header; }
+#else
+    const String line = String(name) + ": " + value + "\r\n";
+    if (first) _responseHeaders = line + _responseHeaders; else _responseHeaders += line;
+#endif
+  }
   void send(int code, const char *type, const String &data) {
     assert(String(type) == "application/json; charset=utf-8");
-    assert(responseHeaders["Cache-Control"] == "no-store");
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    responseCodeBeforeSend = _responseCode; _responseCode = code;
+#endif
+    sendHeader("Content-Type", type, true);
+    if (_contentLength == CONTENT_LENGTH_NOT_SET) sendHeader("Content-Length", std::to_string(data.size()).c_str());
+    else if (_contentLength != CONTENT_LENGTH_UNKNOWN) sendHeader("Content-Length", std::to_string(_contentLength).c_str());
+    else { _chunked = true; sendHeader("Transfer-Encoding", "chunked"); }
+    sendHeader("Connection", "close"); wireHeaders.clear();
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    for (auto *header = _responseHeaders; header; header = header->next) wireHeaders.push_back({header->key, header->value});
+#else
+    size_t offset = 0;
+    while (offset < _responseHeaders.size()) {
+      const size_t end = _responseHeaders.find("\r\n", offset), colon = _responseHeaders.find(": ", offset);
+      assert(end != String::npos && colon < end);
+      wireHeaders.push_back({String(_responseHeaders.substr(offset, colon - offset)), String(_responseHeaders.substr(colon + 2, end - colon - 2))});
+      offset = end + 2;
+    }
+    _responseHeaders = String();
+#endif
+    assert(responseHeader("Cache-Control") == "no-store");
+    wireBody = data;
+    if (_chunked) { char length[32]; snprintf(length, sizeof(length), "%zx\r\n", data.size()); wireBody = String(length) + data + "\r\n"; }
     responses++; status = code; body = data; events.push_back("response");
   }
 };
@@ -209,11 +286,12 @@ struct Fixture {
     const bool earlyResponse = !web.uploadClientConnected();
     const unsigned before = web.responses;
     const String previousBody = web.body;
+    if (!earlyResponse) web.prepareFinalHandler();
     web.requestHandler();
     assert(web.responses == before + (earlyResponse ? 0 : 1) && web.status == code);
     if (earlyResponse) {
       assert(web.body == previousBody && web.clientStops() > 0);
-      assert(web.responseHeaders["Connection"] == "close");
+      assert(web.responseHeader("Connection") == "close");
       assert(events[events.size() - 2] == "response" && events.back() == "client-close");
     }
     if (error) assert(web.body.find(String("\"error\":\"") + error + "\"") != String::npos);
@@ -239,6 +317,18 @@ struct Fixture {
     maintenanceActive = false;
   }
 };
+void freshErrorFraming(const Fixture &f, int status) {
+  assert(f.web.status == status && f.web.responseHeaderCount("Content-Length") == 1);
+  assert(f.web.responseHeader("Content-Length") == std::to_string(f.web.body.size()));
+  assert(f.web.responseHeaderCount("X-Previous-Response") == 0);
+  assert(f.web.responseHeaderCount("Transfer-Encoding") == 0 && f.web.wireBody == f.web.body);
+  assert(f.web.responseHeaderCount("Cache-Control") == 1 && f.web.responseHeader("Cache-Control") == "no-store");
+  assert(f.web.responseHeaderCount("WWW-Authenticate") == (status == 401 ? 1U : 0U));
+  if (status == 401) assert(f.web.responseHeader("WWW-Authenticate") == "Basic realm=\"WirelessSPDSystem firmware\"");
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  assert(f.web.responseCodeBeforeSend == 0);
+#endif
+}
 void parsingAndMarker() {
   size_t size = 0;
   for (const char *bad : {"", "0", "1", "287", "-1", "+1024", " 1024", "1024 ", "1e3", "1024.0", "3145729", "999999999999999999999999999999999"})
@@ -271,7 +361,7 @@ int main() {
     const unsigned authentications = f.web.authentications;
     f.chunk(good.data(), 100); f.end(); f.abort(); // Buffered/parser-abort callbacks cannot reply or write.
     assert(f.web.authentications == authentications);
-    f.finish(401, "unauthorized"); assert(Update.begins == 0 && f.web.responseHeaders.count("WWW-Authenticate"));
+    f.finish(401, "unauthorized"); assert(Update.begins == 0 && f.web.responseHeaderCount("WWW-Authenticate") == 1);
     f.web.authenticated = true; f.web.newConnection(); f.uploadSuccess(good);
   }
   { Fixture f; f.web.requestHeaders.clear(); f.start(good); f.finish(400, "request_header"); assert(Update.begins == 0); }
@@ -342,6 +432,24 @@ int main() {
   { Fixture f; f.web.authenticated = false; f.start(good); f.abort(); f.finish(401, "unauthorized");
     f.web.authenticated = true; f.web.newConnection(); f.finish(400, "incomplete");
     f.uploadSuccess(good);
+  }
+  // Upload callbacks run inside parsing, before the library clears the previous
+  // response. Retain every header occurrence to reproduce real stale framing.
+  for (bool chunked : {false, true}) {
+    { Fixture f; f.web.poisonPreviousResponse(chunked); f.start(good, "3145729");
+      f.abort(); f.finish(413, "size"); freshErrorFraming(f, 413); assert(f.web.responses == 1);
+    }
+    { Fixture f; f.web.poisonPreviousResponse(chunked); f.web.authenticated = false; f.start(good);
+      f.abort(); f.finish(401, "unauthorized"); freshErrorFraming(f, 401); assert(f.web.responses == 1);
+    }
+    { auto bad = good; bad[12] = 2; Fixture f; f.web.poisonPreviousResponse(chunked);
+      f.start(bad); f.write(bad); f.abort(); f.finish(400, "image"); freshErrorFraming(f, 400); assert(f.web.responses == 1);
+    }
+  }
+  { Fixture f; f.web.sendHeader("Cache-Control", "no-store");
+    f.web.send(200, "application/json; charset=utf-8", std::string(2689, 'x'));
+    f.web.newConnection(); f.start(good, "3145729"); f.abort(); f.finish(413, "size");
+    freshErrorFraming(f, 413); assert(f.web.responses == 2); // Previous GET then one early error.
   }
   std::cout << cases << " OTA guard/lifecycle scenarios passed (MbedTLS API " << MBEDTLS_VERSION_MAJOR << ").\n";
 }
@@ -452,7 +560,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="wspd-ota-check-") as temp:
         directory = Path(temp)
         (directory / "mbedtls").mkdir()
-        for header in ["WebServer.h", "Update.h", "esp_ota_ops.h", "mbedtls/sha256.h", "mbedtls/version.h"]:
+        for header in ["WebServer.h", "Update.h", "esp_ota_ops.h", "esp_arduino_version.h", "mbedtls/sha256.h", "mbedtls/version.h"]:
             (directory / header).write_text('#pragma once\n#include "host_shims.h"\n')
         (directory / "host_shims.h").write_text(SHIMS)
         source = directory / "checks.cpp"
@@ -461,7 +569,7 @@ def main():
             binary = directory / f"check-api-{api}"
             subprocess.run([compiler, "-std=c++11", "-O1", "-g",
                             "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-                            f"-DMBEDTLS_VERSION_MAJOR={api}", "-I", str(directory),
+                            f"-DMBEDTLS_VERSION_MAJOR={api}", f"-DESP_ARDUINO_VERSION_MAJOR={api}", "-I", str(directory),
                             "-I", str(SERVER), str(source), "-o", str(binary),
                             *crypto_flags], check=True)
             subprocess.run([str(binary)], check=True)
