@@ -6,8 +6,8 @@ Compile-only checks use synthetic credentials:
 | --- | ---: | ---: | --- |
 | AC-DC AVR128DA32 · sleep, LED mode 1 | 42,636 / 131,072 bytes | 1,543 / 16,384 bytes | Passed |
 | Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
-| T Connect Pro v0.2.3 · core 3.3.12, 127 wireless + local | 1,185,294 / 3,145,728 bytes | 199,948 / 327,680 bytes | Passed |
-| T Connect Pro v0.2.3 · core 2.0.14 compatibility | 1,015,841 / 3,145,728 bytes | 196,544 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.3 · core 3.3.12, 127 wireless + local | 1,185,518 / 3,145,728 bytes | 199,948 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.3 · core 2.0.14 compatibility | 1,016,065 / 3,145,728 bytes | 196,544 / 327,680 bytes | Passed |
 
 The receiver also allocates its session log dynamically in PSRAM: **2 MiB /
 4096 entries** by default, in addition to the LCD framebuffer. Global RAM in the
@@ -126,7 +126,7 @@ receiver's API state and produced authoritative retained MQTT acknowledgements
 in about 1–1.6 seconds. An invalid command was ignored, web controls updated the
 same MQTT state, and session logs recorded the MQTT actions. An old retained ON
 command, seeded before connection, was cleared without muting the receiver.
-The final normal build (1,179,730 bytes flash / 62,908 bytes global RAM) was then
+The final normal build (1,179,954 bytes flash / 62,908 bytes global RAM) was then
 installed by OTA on 14 October with MQTT disabled until the user's site broker is configured.
 The receiver rebooted into v0.2.3, and both real beacons resumed authenticated
 reports with increasing nonces. The complete guide and REST YAML were served

@@ -14,10 +14,12 @@ may require Internet. Download/install those prerequisites before an offline
 installation. This guide assumes Home Assistant is already installed and its
 initial owner account is working; it does not provision a new host operating system.
 
-MQTT device discovery requires **Home Assistant Core 2024.11 or newer**. Use a
-current supported release and check its Core version in System information before
-installation. The REST path does not use device discovery.
-[Device discovery introduction](https://www.home-assistant.io/blog/2024/11/06/release-202411/)
+Use **Home Assistant Core 2025.8 or newer** for the complete guide, including the
+REST mute switch, and prefer a current supported release. Check the Core version
+in System information before installation. MQTT device discovery alone is
+available from Core 2024.11.
+[Device discovery introduction](https://www.home-assistant.io/blog/2024/11/06/release-202411/) ·
+[REST template switch support](https://github.com/home-assistant/core/blob/2025.8.0/homeassistant/components/template/config.py)
 
 ## 1. Prepare the network and tools
 

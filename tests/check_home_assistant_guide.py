@@ -80,7 +80,7 @@ def main():
     assert not parser.assets, "The offline guide must not load external assets or scripts"
     assert "{{include:" not in html and "<!-- ha-example:" not in html
     canonical = (ROOT / "docs/home-assistant.md").read_text()
-    assert "Home Assistant Core 2024.11 or newer" in canonical
+    assert "Home Assistant Core 2025.8 or newer" in canonical
     preparation = canonical.split("## 1. Prepare", 1)[1].split("## 2A.", 1)[0]
     installation = canonical.split("## 4. Configure", 1)[1].split("## 5.", 1)[0]
     assert "python3 tools/firmware.py setup server" in preparation
