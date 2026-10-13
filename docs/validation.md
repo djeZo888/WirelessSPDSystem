@@ -6,8 +6,8 @@ Compile-only checks use synthetic credentials:
 | --- | ---: | ---: | --- |
 | AC-DC AVR128DA32 · sleep, LED mode 1 | 42,636 / 131,072 bytes | 1,543 / 16,384 bytes | Passed |
 | Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
-| T Connect Pro v0.2 · core 3.3.12, 127 wireless + local | 1,108,386 / 3,145,728 bytes | 191,356 / 327,680 bytes | Passed |
-| T Connect Pro v0.2 · core 2.0.14 compatibility | 934,773 / 3,145,728 bytes | 187,968 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.1 · core 3.3.12, 127 wireless + local | 1,108,426 / 3,145,728 bytes | 191,356 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.1 · core 2.0.14 compatibility | 934,861 / 3,145,728 bytes | 187,968 / 327,680 bytes | Passed |
 
 Pinned cores, libraries and board options are listed in the flashing guide and
 each project's `build-options.json`. Beacon
@@ -41,10 +41,12 @@ performance at scale.
 Pinned dependency code emits some compiler warnings; the builds still pass.
 
 `python3 tests/check_server_ota.py` exercises the actual handler with OpenSSL-backed
-host SHA-256 adapters for MbedTLS 2/3: 65 scenarios each, covering authentication,
+host SHA-256 adapters for MbedTLS 2/3: 72 scenarios each, covering authentication,
 CSRF, image/hash/length rejection, cancellation, writes/finalization failures,
 multiple files, timeout rollover, immediate early-rejection connection closure
-and activation/restart order. Another 41 checks
+and activation/restart order. Response checks model retained headers from a
+preceding API request and require one correct Content-Length and authentication
+challenge. Another 41 checks
 exercise the production validator's OTA credentials and MQTT configuration limits. Host shims do not
 verify physical flash/bootloader behavior or real HTTP multipart parsing.
 `python3 tests/check_server_mqtt.py` checks discovery, retained full-list telemetry,
@@ -56,7 +58,24 @@ The v0.1 receiver was flashed with Arduino IDE 2.3.10 / ESP32 core 3.3.12 /
 Arduino_GFX 1.6.9 at 460800 baud on 13 October 2026. Display/touch/AP/LoRa boot
 passed, and five authenticated ID 1 packets arrived 23.5–39.7 seconds apart with
 consecutive nonces and 0% observed loss. The user confirmed the LCD. This evidence
-does not establish physical v0.2 OTA or Home Assistant operation.
+is separate from the subsequent network-update checks below.
+
+On 13 October 2026, a private three-beacon v0.2 build was installed over USB
+using core 3.3.12 / Arduino_GFX 1.6.9 at 460800 baud. Station Wi-Fi, the full-list
+API and the exact served dashboard HTML passed. Fresh authenticated reports from
+AC-DC beacons 1 and 2 were accepted; beacon 3 remained UNKNOWN.
+An authenticated HTTP update installed v0.2.1 in about seven seconds, returned
+202 and restarted into the new version. Both beacons resumed reporting with
+increasing nonces and at least three accepted packets each. Live rejection tests
+passed for missing authentication, early multipart authentication, a missing
+update header, oversized declarations and an incorrect SHA-256. Each response
+had one correct Content-Length; reception continued afterward without reboot.
+Independent USB reads of OTA metadata confirmed app0 → app1 and sequence 1 → 2
+with the new image marked VALID. Every byte of the application read from app1
+matched the network-uploaded image. These read operations reset the receiver
+separately from the earlier successful network-update reboot.
+MQTT/Home Assistant deployment, battery hardware and maximum-list performance
+remain untested on this bench.
 
 Persistent-nonce firmware 1 is tested with
 `python3 tests/check_persistent_nonce.py`: 5,140 checks including 126 simulated
@@ -70,7 +89,11 @@ The receiver's nonce comparison and 20-byte frame remain compatible.
 The original system was reported working by its author with both beacon variants.
 An earlier AC-DC preproduction build has passed flash readback, fuse and nonce-journal
 checks. The operator confirmed TX LED timing and SPD OK/FAIL LED indications.
-The sleep revision has not been flashed. Full RF coverage and physical power-loss
+The maintained sleep revision was flashed onto AC-DC beacon 2 through PICkit 4
+on 13 October 2026: AVR128DA32 signature, all 131,072 flash bytes, BOD and EEPROM
+retention fuses verified. ID 2, 8 dBm and a 20–40 second preproduction interval
+were configured; a valid EEPROM nonce journal and authenticated reception were
+observed. Sleep current, full RF coverage and physical power-loss
 checks remain open. Battery standby
 current, fuse/clock/voltage operation, RF performance, actual contact/alarm behavior
 and actual board wiring remain hardware acceptance checks. The hardware guide

@@ -3,6 +3,14 @@
 Receiver versions are independent of beacon HW/FW packet fields and repository
 releases. The LCD displays the receiver version with the `-tconnpro` suffix.
 
+## v0.2.1 — 2026-10-13
+
+- Fixes early OTA rejection responses that could reuse headers from a preceding
+  request, causing conflicting Content-Length values and incomplete-response
+  errors. Upload responses start with fresh headers in ESP32 cores 2 and 3.
+- Adds regression coverage for retained response headers and authentication
+  challenges during upload rejection.
+
 ## v0.2 — 2026-10-13
 
 - Replaces the initial dashboard with responsive desktop tables and mobile cards,
