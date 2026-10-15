@@ -13,8 +13,20 @@ static const char *WIFI_PASSWORD = "";
 // Fallback SSID: 1..32 bytes; password: 8..63 characters.
 static const char *FALLBACK_AP_SSID = "WirelessSPDSystem";
 static const char *FALLBACK_AP_PASSWORD = "CHANGE_ME_AP_PASSWORD";
-// Station connection timeout: 0..2147483647 ms (0 = immediate fallback).
+// Initial station timeout: 0..2147483647 ms (0 = immediate fallback).
+// Failed station connections restart Wi-Fi at this interval (60000..120000 ms).
+// A fallback AP is restored after each restart; an active OTA defers restarts.
 constexpr auto WIFI_CONNECT_TIMEOUT_MS = 15000;
+constexpr auto WIFI_RETRY_INTERVAL_MS = 60000;
+// Empty static IP selects DHCP and ignores the remaining static fields.
+// Static mode: choose an unused unicast host and contiguous /1../30 mask.
+// Gateway/DNS may be empty (none) for same-subnet access. NTP and off-subnet
+// hosts may require a reachable gateway and DNS; no values are guessed.
+static const char *WIFI_STATIC_IP = "";
+static const char *WIFI_SUBNET_MASK = "255.255.255.0";
+static const char *WIFI_GATEWAY = "";
+static const char *WIFI_DNS1 = "";
+static const char *WIFI_DNS2 = "";
 
 // Network firmware updates: disabled until a private token is configured.
 constexpr auto OTA_ENABLED = false;

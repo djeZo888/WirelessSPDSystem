@@ -506,6 +506,7 @@ CONFIG_CHECKS = r'''
 #include <string>
 constexpr int LOW = 0, HIGH = 1;
 #include "config_fixture.h"
+#include "wifi_recovery.h"
 constexpr size_t SPD_COUNT = sizeof(SPD_CONFIGS) / sizeof(SPD_CONFIGS[0]);
 constexpr bool SPD_LOCAL_ENABLED = SPD_LOCAL_ID >= 0;
 char lastSetupFailureText[160] = {};

@@ -68,6 +68,13 @@ Use one LAN for the receiver, broker and Home Assistant. Guest Wi-Fi/client
 isolation or VLAN rules may prevent them communicating. The receiver's fallback
 access point alone has no route to a broker on your home LAN. MQTT requires
 station Wi-Fi; REST also needs Home Assistant to reach the receiver's IP.
+Receiver v0.2.4 restarts and retries a lost station link/IP every 60 seconds by
+default (`WIFI_RETRY_INTERVAL_MS`, configurable from 60000 to 120000 ms). A boot fallback
+keeps its AP available while station retries continue; MQTT resumes once station
+Wi-Fi has a valid IP. Check **Logs** for disconnect reason codes and acquired/lost
+addresses. A full retry briefly restarts the fallback AP too; active OTA uploads
+defer these restarts. With neither interface online, the LCD shows **connecting** for a configured
+station, or **offline** when no station is configured.
 
 Find the Home Assistant/broker IP and the receiver IP in your router's client
 list. The receiver LCD and API also show its address. Create **DHCP reservations**
@@ -181,6 +188,31 @@ static const char *MQTT_PASSWORD = "YOUR_DEVICE_ACCOUNT_PASSWORD";
 static const char *MQTT_BASE_TOPIC = "wirelessspd";
 constexpr auto MQTT_PUBLISH_SECONDS = 10;
 ```
+
+By default, leave `WIFI_STATIC_IP = ""` to obtain the address, mask, router and
+DNS through DHCP. To use a fixed address instead, edit these existing `config.h`
+fields (replace the example LAN values):
+
+```cpp
+static const char *WIFI_STATIC_IP = "192.168.1.30";
+static const char *WIFI_SUBNET_MASK = "255.255.255.0";
+static const char *WIFI_GATEWAY = "192.168.1.1";
+static const char *WIFI_DNS1 = "192.168.1.1";
+static const char *WIFI_DNS2 = "";
+constexpr auto WIFI_RETRY_INTERVAL_MS = 60000;
+```
+
+Choose a unique address reserved for this device or outside the router's dynamic
+DHCP pool. Keep the station LAN separate from the fallback AP's **192.168.4.0/24**
+subnet to avoid conflicting routes when both interfaces run. The firmware checks the IPv4 syntax, host address and contiguous mask;
+a nonzero gateway must be a different host on the same subnet. Blank gateway/DNS
+fields (or `0.0.0.0`) mean none. A same-subnet Home Assistant/MQTT broker can use
+IP addresses without a gateway. Destinations outside that subnet need a gateway;
+hostnames also need a reachable DNS server. The default public NTP hostname needs
+both routing and DNS, so configure them if you want network-synchronized dates.
+Static addressing does not require a DHCP lease; retries finish when the station
+has its configured valid address. Rebuild/flash after editing these fields, and
+update the Home Assistant receiver URLs if its address changes.
 
 Keep a valid fallback AP password of 8–63 characters. Each `SPD_CONFIGS` entry
 must match its transmitter ID and nonzero four-byte secret. Frequency/SF must

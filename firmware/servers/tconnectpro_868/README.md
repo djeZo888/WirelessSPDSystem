@@ -6,7 +6,7 @@ PSRAM, 868 MHz SX1262, ST7796 LCD and CST226SE touch. It accepts both
 [battery](../../beacons/battery_avr128db32) beacon firmware using the
 [20-byte authenticated protocol](../../../docs/protocol.md). The [API reference](../../../docs/api.md) documents the full-list response and controls.
 
-Receiver firmware is **v0.2.3**, shown on the LCD as **v0.2.3-tconnpro**.
+Receiver firmware is **v0.2.4**, shown on the LCD as **v0.2.4-tconnpro**.
 See the [receiver changelog](CHANGELOG.md). This version is separate from beacon
 HW/FW fields in LoRa packets and the repository's `v0.1.0` release.
 
@@ -29,6 +29,17 @@ for the full locally hosted **HA Integration** guide, MQTT discovery, REST
 examples and a synchronized Home Assistant alarm mute switch, and [network firmware updates](../../../docs/network-updates.md)
 for authenticated browser uploads after the first USB installation.
 
+Station Wi-Fi restarts and retries every **60 seconds** by default after a lost
+connection or IP lease (`WIFI_RETRY_INTERVAL_MS`: **60000–120000 ms**).
+If boot cannot join the configured station within `WIFI_CONNECT_TIMEOUT_MS`, the
+password-protected fallback AP stays available while station retries continue.
+With no station SSID configured, the receiver uses AP-only mode. The LCD shows
+**connecting** while a configured station has no address and no fallback AP
+is ready (**offline** if no station is configured). The Logs tab records disconnect
+reasons and reconnection/IP events; LoRa and local alarms keep running during
+retries. A full Wi-Fi restart briefly cycles the fallback AP too. Recovery actions
+wait until an active OTA upload ends.
+
 ## Build and flash
 
 Install [Arduino CLI](https://arduino.github.io/arduino-cli/installation/),
@@ -50,6 +61,9 @@ the `.ino` does not need editing:
 | `LORA_FREQ_MHZ`, `LORA_SF` | Match every beacon: carrier **863.0625–869.9375 MHz**, SF **5–12**. Defaults **865.3 MHz / SF10**. Bandwidth, coding rate, sync word, preamble and CRC are fixed in the sketch. |
 | `LORA_RX_TX_DBM` | Radio initialization power: integer **−9 to +22 dBm**, default **10**. Does not have to match beacon TX power; this receiver does not send acknowledgements. |
 | `WIFI_SSID`, `WIFI_PASSWORD` | Optional station credentials. Empty SSID uses the fallback access point. |
+| `WIFI_CONNECT_TIMEOUT_MS`, `WIFI_RETRY_INTERVAL_MS` | Initial join timeout (default **15000 ms**) and repeated Wi-Fi restart interval (**60000–120000 ms**, default **60000**). |
+| `WIFI_STATIC_IP`, `WIFI_SUBNET_MASK` | Empty IP selects **DHCP**. Otherwise choose an unused LAN IPv4 address and a contiguous subnet mask. |
+| `WIFI_GATEWAY`, `WIFI_DNS1`, `WIFI_DNS2` | Optional static-mode router/DNS addresses. Empty or `0.0.0.0` means none. A gateway is required to reach other subnets; DNS is required to resolve hostnames. |
 | `FALLBACK_AP_SSID`, `FALLBACK_AP_PASSWORD` | Choose an AP name and a password of **8–63 characters**, even when using station Wi-Fi. |
 | `SPD_LOCAL_ID` | Leave **-1** to disable the local input, or choose an unused ID **0–127**. ID 0 is available only for the local contact, allowing 128 total rows. |
 | `DISPLAY_PAGE_SECONDS` | Seconds on each LCD page: **1–3600**, default **5**. The page size stays at eight rows. |
@@ -71,7 +85,11 @@ Frequency and spreading factor must match: this SX1262 receives one of each at
 a time. Existing configs must remove `LORA_BW_KHZ`, `LORA_CR`, `LORA_SYNCWORD`,
 `LORA_PREAMBLE` and `LORA_CRC_ENABLED`, now fixed in the sketch.
 
-When upgrading, add the new OTA and MQTT fields from `config.example.h` to
+When upgrading to v0.2.4, also add `WIFI_RETRY_INTERVAL_MS`, `WIFI_STATIC_IP`,
+`WIFI_SUBNET_MASK`, `WIFI_GATEWAY`, `WIFI_DNS1` and `WIFI_DNS2` from the example.
+Leave the static address empty to retain DHCP. Preserve all existing private settings.
+
+For earlier upgrades, add the OTA and MQTT fields from `config.example.h` to
 private `config.h`, preserving your Wi-Fi credentials, beacon list and display
 settings. Replace the former OTA username/password fields with `OTA_TOKEN` and add the log/clock settings from the example. Keep updates disabled until a private token is configured. These settings are applied when compiling; rebuild
 and flash after changing the page interval.
