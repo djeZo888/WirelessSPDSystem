@@ -1,7 +1,7 @@
 #pragma once
 
 // Release identity is maintained with the firmware, outside deployment config.
-#define WSPD_SERVER_VERSION "v0.2.3"
+#define WSPD_SERVER_VERSION "v0.2.4"
 #define WSPD_SERVER_VARIANT "tconnpro"
 
 constexpr char SERVER_VERSION[] = WSPD_SERVER_VERSION;

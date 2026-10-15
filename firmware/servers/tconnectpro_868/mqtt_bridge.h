@@ -48,6 +48,7 @@ class WspdMqttBridge {
     gatewayId_ = gatewayId;
     firmwareId_ = firmwareId;
     dashboardUrl_ = String("http://") + ip + "/";
+    boundedText(pendingAddress_, sizeof(pendingAddress_), ip);
     topicRoot_ = String(baseTopic_) + "/" + gatewayId_;
     availabilityTopic_ = topicRoot_ + "/availability";
     commandTopic_ = topicRoot_ + "/command/alarm_muted";
@@ -117,6 +118,16 @@ class WspdMqttBridge {
     publishRequested_ = true;
     portEXIT_CRITICAL(&lock_);
   }
+  // Main-loop producer; the worker owns String allocation and discovery.
+  void setNetworkAddress(const char *ip) {
+    if (!task_ || !ip || !ip[0] || strlen(ip) >= sizeof(pendingAddress_)) return;
+    portENTER_CRITICAL(&lock_);
+    if (strcmp(pendingAddress_, ip)) {
+      strcpy(pendingAddress_, ip);
+      addressPending_ = true;
+    }
+    portEXIT_CRITICAL(&lock_);
+  }
   // Called only by the sketch after web/touch/MQTT changes. Copy the latest
   // mute state before waking publication, so acknowledgement is authoritative.
   void notifyMuteStateChanged() {
@@ -167,6 +178,8 @@ class WspdMqttBridge {
   bool connected_ = false, networkReady_ = false, paused_ = false;
   bool publishRequested_ = false, muteStatePending_ = false;
   bool mutePending_ = false, pendingMute_ = false;
+  bool addressPending_ = false;
+  char pendingAddress_[16] = {0};
   bool discoveryRequested_ = false; // Used only by the MQTT task and its callback.
   bool attempted_ = false;
   uint32_t lastAttemptMs_ = 0, lastCycleMs_ = 0;
@@ -240,10 +253,19 @@ class WspdMqttBridge {
   }
   void workerStep(uint32_t now) {
     bool ready, paused;
+    char address[16] = {0};
     portENTER_CRITICAL(&lock_);
     ready = networkReady_;
     paused = paused_;
+    if (addressPending_) {
+      memcpy(address, pendingAddress_, sizeof(address));
+      addressPending_ = false;
+    }
     portEXIT_CRITICAL(&lock_);
+    if (address[0]) {
+      dashboardUrl_ = String("http://") + address + "/";
+      discoveryRequested_ = true;
+    }
     if (!ready || paused) {
       if (mqtt_.connected()) {
         // Best effort graceful availability update; LWT covers an unclean stop.

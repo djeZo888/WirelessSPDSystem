@@ -47,7 +47,7 @@ vm.runInContext(TESTS,context).then(()=>console.log('Dashboard regression checks
 
 TESTS = r"""
 (async()=>{
-function fixture(total=128){return {gateway:{firmware_id:'v0.2.3-tconnpro',ip:'192.168.4.1',uptime_seconds:100,lora_freq_mhz:868,lora_sf:9,total_valid_packets:50,local_spd_pin:7,stale_after_seconds:120,alarm_active:false,alarm_muted:false,alarm_kind:'none',ota:{enabled:false,busy:false,slot_size:3145728}},summary:{},spds:Array.from({length:total},(_,id)=>({spd_id:id,friendly_name:id===1?'<img src=x onerror="alert(1)">':`Beacon ${id}`,local:id===0,source:id===0?'local':'lora',status:['OK','FAIL','STALE','UNKNOWN'][id%4],stale:id%4===2,status_code:id%4===0?1:null,temperature_c:id===1?-127:22,hardware_version:2,firmware_version:1,battery_voltage_v:id===0?null:3.31,battery_low_alarm:id%9===0&&id!==0,rssi_dbm:-93.5,snr_db:8.2,packet_count:12,packet_loss_window_total:20,packet_loss_window_missed:1,packet_loss_percent:5,total_skipped:1,age_seconds:18,last_reported_status:'OK',nonce_hex:'<nonce>',raw_hex:'<packet>'}))};}
+function fixture(total=128){return {gateway:{firmware_id:'v0.2.4-tconnpro',ip:'192.168.4.1',uptime_seconds:100,lora_freq_mhz:868,lora_sf:9,total_valid_packets:50,local_spd_pin:7,stale_after_seconds:120,alarm_active:false,alarm_muted:false,alarm_kind:'none',ota:{enabled:false,busy:false,slot_size:3145728}},summary:{},spds:Array.from({length:total},(_,id)=>({spd_id:id,friendly_name:id===1?'<img src=x onerror="alert(1)">':`Beacon ${id}`,local:id===0,source:id===0?'local':'lora',status:['OK','FAIL','STALE','UNKNOWN'][id%4],stale:id%4===2,status_code:id%4===0?1:null,temperature_c:id===1?-127:22,hardware_version:2,firmware_version:1,battery_voltage_v:id===0?null:3.31,battery_low_alarm:id%9===0&&id!==0,rssi_dbm:-93.5,snr_db:8.2,packet_count:12,packet_loss_window_total:20,packet_loss_window_missed:1,packet_loss_percent:5,total_skipped:1,age_seconds:18,last_reported_status:'OK',nonce_hex:'<nonce>',raw_hex:'<packet>'}))};}
 latest=fixture();connected=true;lastSuccess=new Date();render();renderConnection();
 assert.equal((node('body').innerHTML.match(/class="spdrow/g)||[]).length,128);
 assert.match(node('listCount').textContent,/Showing 128 of 128/);
@@ -71,7 +71,7 @@ node('search').value='no such beacon';renderRows();assert.equal(visibleSpds().le
 node('search').value='';node('statusFilter').value='all';latest.spds[127].hardware_version='2';renderRows();assert.equal(node('batteryHeader').hidden,true);latest.spds[127].hardware_version=2;renderRows();assert.equal(node('batteryHeader').hidden,false);
 latest=originalSnapshot;renderRows();
 
-assert.match(node('footerVersion').textContent,/v0.2.3-tconnpro/);
+assert.match(node('footerVersion').textContent,/v0.2.4-tconnpro/);
 lastSuccess=new Date(2026,9,13,23,4,3);renderConnection();assert.equal(node('lastRefresh').textContent,'Last refreshed 2026-10-13 23:04:03');assert.equal(bootTime24(3542000),'00:59:02');assert.match(rowHtml(latest.spds[1]).split('<tr class="detailrow"')[0],/SNR 8.2 dB/);assert.equal(node('muteBtn').textContent,'MUTE');latest.gateway.alarm_muted=true;render();assert.equal(node('muteBtn').textContent,'UNMUTE');latest.gateway.alarm_muted=false;
 assert.match(node('apiCurl').textContent,/curl http:\/\/192\.168\.4\.1\/api\/v1\/get/);
 assert.match(node('mqttConnectionText').textContent,/MQTT is disabled/);

@@ -26,6 +26,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <WebServer.h>
 #include <Arduino_GFX_Library.h>
 #include <RadioLib.h>
@@ -48,6 +49,7 @@
 #include <sys/time.h>
 #include "session_log.h"
 #include "json_format.h"
+#include "wifi_recovery.h"
 
 struct SpdState; // Arduino auto-prototypes may precede the state definition.
 
@@ -95,6 +97,8 @@ static_assert(sizeof(SpdConfig::secret) == 4, "Every beacon secret must occupy e
 
 // Millisecond intervals are checked before runtime timer arithmetic.
 static_assert(validConfigInterval(WIFI_CONNECT_TIMEOUT_MS, true), "WIFI_CONNECT_TIMEOUT_MS must be 0..2147483647 ms.");
+static_assert(validConfigInterval(WIFI_RETRY_INTERVAL_MS) && WIFI_RETRY_INTERVAL_MS >= 60000 && WIFI_RETRY_INTERVAL_MS <= 120000,
+              "WIFI_RETRY_INTERVAL_MS must be an integer in 60000..120000 ms.");
 static_assert(validConfigInterval(DISPLAY_PERIODIC_REFRESH_MS), "DISPLAY_PERIODIC_REFRESH_MS must be 1..2147483647 ms.");
 static_assert(validConfigInterval(TOUCH_POLL_MS), "TOUCH_POLL_MS must be 1..2147483647 ms.");
 static_assert(validConfigInterval(TOUCH_DEBOUNCE_MS, true), "TOUCH_DEBOUNCE_MS must be 0..2147483647 ms.");
@@ -235,6 +239,14 @@ static void serviceSessionClock() {
 static void mqttAlarmMute(bool muted);
 WspdMqttBridge mqttBridge(MQTT_HOST, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD, MQTT_BASE_TOPIC, MQTT_PUBLISH_SECONDS, mqttAlarmMute);
 char gatewayId[24] = {0};
+
+// BEGIN WIFI RUNTIME STATE
+static WspdWiFiRecovery wifiRecovery;
+static WspdWiFiEventQueue wifiEvents;
+static portMUX_TYPE wifiEventLock = portMUX_INITIALIZER_UNLOCKED;
+static bool wifiTimeRequested = false;
+static bool wifiFallbackStarted = false;
+// END WIFI RUNTIME STATE
 
 // =============================================================================
 // STATE
@@ -537,6 +549,14 @@ static bool validateSpdConfig() {
     return false;
   }
 
+  WspdWiFiNetworkConfig networkConfig;
+  const char *networkError = wspdParseNetworkConfig(WIFI_STATIC_IP, WIFI_SUBNET_MASK, WIFI_GATEWAY, WIFI_DNS1, WIFI_DNS2, networkConfig);
+  if (networkError) {
+    snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "%s", networkError);
+    lastSetupFailureCode = -1;
+    return false;
+  }
+
   const size_t tokenLength = OTA_TOKEN ? strlen(OTA_TOKEN) : 0;
   bool tokenValid = OTA_TOKEN && (tokenLength == 0 ? !OTA_ENABLED : tokenLength >= 32 && tokenLength <= 128);
   for (size_t i = 0; tokenValid && i < tokenLength; ++i) {
@@ -713,9 +733,23 @@ static String jsonEscape(const char *s) {
   return out;
 }
 
+static bool configuredStationWiFi() {
+  return WIFI_SSID && WIFI_SSID[0] && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0;
+}
+
+static bool stationOnline() {
+  return (int(WiFi.getMode()) & int(WIFI_STA)) && WiFi.status() == WL_CONNECTED &&
+         uint32_t(WiFi.localIP()) != 0;
+}
+
+static bool fallbackApOnline() {
+  return wifiFallbackStarted && (int(WiFi.getMode()) & int(WIFI_AP)) && uint32_t(WiFi.softAPIP()) != 0;
+}
+
 static String ipString() {
-  if (WiFi.status() == WL_CONNECTED) return WiFi.localIP().toString();
-  return WiFi.softAPIP().toString();
+  if (stationOnline()) return WiFi.localIP().toString();
+  if (fallbackApOnline()) return WiFi.softAPIP().toString();
+  return configuredStationWiFi() ? String("connecting") : String("offline");
 }
 
 // =============================================================================
@@ -1444,12 +1478,10 @@ static void handleAlarmRelay() {
 }
 
 static void serviceSessionEvents() {
-  static int previousWifi = -100, previousMqtt = -1, previousAlarm = -1;
+  static int previousMqtt = -1, previousAlarm = -1;
   static uint32_t lastCheck = 0; static bool wasStale[SPD_COUNT] = {false};
   const uint32_t now = millis();
   if (uint32_t(now - lastCheck) < 1000UL) return; lastCheck = now;
-  const int wifi = int(WiFi.status());
-  if (wifi != previousWifi) { sessionLogf("[WiFi] State=%d mode=%d IP=%s", wifi, int(WiFi.getMode()), ipString().c_str()); previousWifi = wifi; }
   const int mqtt = mqttBridge.connected() ? 1 : 0;
   if (mqtt != previousMqtt) { sessionLogf("[MQTT] %s", mqttBridge.enabled() ? (mqtt ? "Connected" : "Disconnected") : "Disabled"); previousMqtt = mqtt; }
   const int alarm = currentAlarmKind();
@@ -1788,17 +1820,171 @@ static bool setupWebServer() {
   return true;
 }
 
+// Wi-Fi events run on the core's event task. Only copy fixed-size diagnostics;
+// the receiver loop owns log writes, display updates and all recovery actions.
+static void queueWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  WspdWiFiEvent entry;
+  if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+    entry.type = WspdWiFiEvent::Disconnected;
+    entry.reason = info.wifi_sta_disconnected.reason;
+  } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+    entry.type = WspdWiFiEvent::GotIp;
+    entry.ip = info.got_ip.ip_info.ip.addr;
+  } else if (event == ARDUINO_EVENT_WIFI_STA_LOST_IP) {
+    entry.type = WspdWiFiEvent::LostIp;
+  } else return;
+  portENTER_CRITICAL(&wifiEventLock);
+  wifiEvents.push(entry);
+  portEXIT_CRITICAL(&wifiEventLock);
+}
+
+static const char *wifiDisconnectReasonText(uint8_t reason) {
+  switch (reason) {
+    case WIFI_REASON_UNSPECIFIED: return "unspecified";
+    case WIFI_REASON_AUTH_EXPIRE: return "authentication expired";
+    case WIFI_REASON_AUTH_LEAVE: return "authentication leave";
+    case WIFI_REASON_ASSOC_EXPIRE: return "association expired";
+    case WIFI_REASON_ASSOC_LEAVE: return "association leave / local retry";
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "WPA handshake timeout";
+    case WIFI_REASON_GROUP_KEY_UPDATE_TIMEOUT: return "group key timeout";
+    case WIFI_REASON_BEACON_TIMEOUT: return "access point beacon timeout";
+    case WIFI_REASON_NO_AP_FOUND: return "access point not found";
+    case WIFI_REASON_AUTH_FAIL: return "authentication failed";
+    case WIFI_REASON_ASSOC_FAIL: return "association failed";
+    case WIFI_REASON_HANDSHAKE_TIMEOUT: return "handshake timeout";
+    case WIFI_REASON_CONNECTION_FAIL: return "connection failed";
+    default: return "other; see ESP32 Wi-Fi reason code";
+  }
+}
+
+static void drainWiFiEvents() {
+  uint32_t dropped;
+  portENTER_CRITICAL(&wifiEventLock);
+  dropped = wifiEvents.takeDropped();
+  portEXIT_CRITICAL(&wifiEventLock);
+  if (dropped) sessionLogf("[WiFi] Diagnostic queue full; %lu older events omitted", (unsigned long)dropped);
+  for (size_t i = 0; i < WspdWiFiEventQueue::CAPACITY; ++i) {
+    WspdWiFiEvent event;
+    portENTER_CRITICAL(&wifiEventLock);
+    const bool available = wifiEvents.pop(event);
+    portEXIT_CRITICAL(&wifiEventLock);
+    if (!available) break;
+    if (event.type == WspdWiFiEvent::Disconnected) {
+      sessionLogf("[WiFi] Station disconnected: reason=%u (%s)", unsigned(event.reason), wifiDisconnectReasonText(event.reason));
+    } else if (event.type == WspdWiFiEvent::GotIp) {
+      sessionLogf("[WiFi] Station received IPv4 %s", IPAddress(event.ip).toString().c_str());
+    } else sessionLogLine("[WiFi] Station lost IPv4; waiting for DHCP / reconnect");
+  }
+}
+
+static bool startFallbackAp() {
+  if (fallbackApOnline()) return true;
+  // A configured station stays enabled so it can recover while the local
+  // dashboard remains available through the fallback AP.
+  const bool modeOk = WiFi.mode(configuredStationWiFi() ? WIFI_AP_STA : WIFI_AP);
+  const bool apOk = modeOk && WiFi.softAP(FALLBACK_AP_SSID, FALLBACK_AP_PASSWORD);
+  wifiFallbackStarted = apOk;
+  if (apOk) {
+    sessionLogf("[WiFi] Fallback AP started: SSID=%s IP=%s", FALLBACK_AP_SSID, WiFi.softAPIP().toString().c_str());
+    requestScreenRedraw();
+  } else sessionLogLine("[WiFi] Fallback AP start failed");
+  return apOk;
+}
+
+static IPAddress wifiIPv4Address(uint32_t address) {
+  return IPAddress(uint8_t(address >> 24), uint8_t(address >> 16), uint8_t(address >> 8), uint8_t(address));
+}
+
+static bool applyWiFiNetworkConfig() {
+  WspdWiFiNetworkConfig config;
+  const char *error = wspdParseNetworkConfig(WIFI_STATIC_IP, WIFI_SUBNET_MASK, WIFI_GATEWAY, WIFI_DNS1, WIFI_DNS2, config);
+  if (error) { sessionLogf("[WiFi] Network configuration rejected: %s", error); return false; }
+  // All zeros explicitly select DHCP again after a driver restart. Optional
+  // static gateway/DNS remain zero; no router or DNS addresses are guessed.
+  const IPAddress address = wifiIPv4Address(config.address), gateway = wifiIPv4Address(config.gateway);
+  const IPAddress mask = wifiIPv4Address(config.mask), dns1 = wifiIPv4Address(config.dns1), dns2 = wifiIPv4Address(config.dns2);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  // The compatibility WiFi.config wrapper reorders parameters for masks whose
+  // first octet is not 255. The explicit STA API preserves every valid mask.
+  const bool ok = WiFi.STA.begin(false) && WiFi.STA.config(address, gateway, mask, dns1, dns2);
+#else
+  const bool ok = WiFi.config(address, gateway, mask, dns1, dns2);
+#endif
+  if (!ok) { sessionLogLine("[WiFi] Applying station IPv4 configuration failed; next retry remains scheduled"); return false; }
+  if (config.dhcp) sessionLogLine("[WiFi] Station IPv4: DHCP");
+  else sessionLogf("[WiFi] Station IPv4: static %s mask=%s gateway=%s DNS=%s,%s",
+                   address.toString().c_str(), mask.toString().c_str(), gateway.toString().c_str(),
+                   dns1.toString().c_str(), dns2.toString().c_str());
+  return true;
+}
+
+static bool restartStationWiFi(bool keepAp) {
+  sessionLogf("[WiFi] Restarting Wi-Fi%s; retry interval %lus", keepAp ? " (fallback AP briefly cycles)" : "",
+              (unsigned long)(WIFI_RETRY_INTERVAL_MS / 1000UL));
+  // Reinitialize the full driver rather than depending on a reason-specific
+  // reconnect. Framework stop/start calls are bounded; there is no association
+  // or DHCP wait here, and the main-loop OTA guard defers the whole restart.
+  const bool stopped = WiFi.mode(WIFI_OFF);
+  wifiFallbackStarted = false;
+  const bool started = WiFi.mode(keepAp ? WIFI_AP_STA : WIFI_STA);
+  if (!started) {
+    sessionLogLine("[WiFi] Driver restart failed; next retry remains scheduled");
+    if (keepAp) startFallbackAp();
+    return false;
+  }
+  if (!stopped) sessionLogLine("[WiFi] Driver stop was not confirmed; reapplying station settings");
+  const bool configured = applyWiFiNetworkConfig();
+  if (configured) WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  const bool apOk = !keepAp || startFallbackAp();
+  return configured && apOk;
+}
+
+static void serviceWiFi(uint32_t now) {
+  drainWiFiEvents();
+  const bool paused = firmwareOta.busy();
+  const WspdWiFiRecovery::Actions actions = wifiRecovery.poll(now, stationOnline(), fallbackApOnline(), paused);
+  if (actions.retry) {
+    restartStationWiFi(actions.startAp || fallbackApOnline());
+  } else if (actions.startAp) startFallbackAp();
+
+  static int previousStatus = -100, previousMode = -100;
+  static uint32_t previousStationIp = 0, previousApIp = 0;
+  static bool previousOnline = false;
+  const int status = int(WiFi.status()), mode = int(WiFi.getMode());
+  const uint32_t stationIp = uint32_t(WiFi.localIP()), apIp = uint32_t(WiFi.softAPIP());
+  const bool online = stationOnline();
+  if (online && (!previousOnline || stationIp != previousStationIp)) {
+    mqttBridge.setNetworkAddress(WiFi.localIP().toString().c_str());
+  }
+  if (status != previousStatus || mode != previousMode || stationIp != previousStationIp || apIp != previousApIp || online != previousOnline) {
+    sessionLogf("[WiFi] Station=%s status=%d mode=%d address=%s", online ? "online" : "offline", status, mode, ipString().c_str());
+    requestScreenRedraw();
+    previousStatus = status; previousMode = mode;
+    previousStationIp = stationIp; previousApIp = apIp; previousOnline = online;
+  }
+  if (online && !paused && !wifiTimeRequested && NTP_SERVER[0]) {
+    configTime(0, 0, NTP_SERVER);
+    wifiTimeRequested = true;
+    sessionLogLine("[Clock] Requesting network time after station connection");
+  }
+}
+
 static bool setupWiFi() {
+  WiFi.persistent(false);
+  // Application retries cover every failure reason and DHCP loss at a bounded
+  // cadence; avoid competing with the core's reason-dependent retry policy.
+  WiFi.setAutoReconnect(false);
+  WiFi.onEvent(queueWiFiEvent);
   WiFi.mode(WIFI_STA);
   bool connected = false;
 
-  if (WIFI_SSID && strlen(WIFI_SSID) > 0 && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
+  if (configuredStationWiFi()) {
     bootLogf(BLACK, "WiFi: connecting to %s", WIFI_SSID);
     sessionLogf("[WiFi] Connecting to %s\n", WIFI_SSID);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    if (applyWiFiNetworkConfig()) WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     const uint32_t start = millis();
     while (millis() - start < WIFI_CONNECT_TIMEOUT_MS) {
-      if (WiFi.status() == WL_CONNECTED) {
+      if (stationOnline()) {
         connected = true;
         break;
       }
@@ -1808,25 +1994,23 @@ static bool setupWiFi() {
     bootLogLine(BLACK, "WiFi: station SSID not configured");
   }
 
+  wifiRecovery.begin(millis(), configuredStationWiFi(), stationOnline(), WIFI_RETRY_INTERVAL_MS);
   if (connected) {
     sessionLogf("[WiFi] Connected, IP=%s\n", WiFi.localIP().toString().c_str());
     bootLogf(BLACK, "WiFi: STA IP %s", WiFi.localIP().toString().c_str());
     return true;
   }
 
-  if (WIFI_SSID && strlen(WIFI_SSID) > 0 && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
+  if (configuredStationWiFi()) {
     bootLogLine(BLACK, "WiFi: STA timeout, starting AP");
   }
 
-  WiFi.mode(WIFI_AP);
-  const bool apOk = WiFi.softAP(FALLBACK_AP_SSID, FALLBACK_AP_PASSWORD);
-  if (!apOk) {
+  if (!startFallbackAp()) {
     snprintf(lastSetupFailureText, sizeof(lastSetupFailureText), "Fallback AP start failed");
     lastSetupFailureCode = -1;
     return false;
   }
 
-  sessionLogf("[WiFi] Fallback AP started: SSID=%s IP=%s\n", FALLBACK_AP_SSID, WiFi.softAPIP().toString().c_str());
   bootLogf(BLACK, "WiFi: AP %s IP %s", FALLBACK_AP_SSID, WiFi.softAPIP().toString().c_str());
   return true;
 }
@@ -1868,8 +2052,9 @@ void setup() {
     fatalBootError(lastSetupFailureCode, "WiFi", lastSetupFailureText[0] ? lastSetupFailureText : "WiFi initialization failed");
   }
 
-  if (WiFi.status() == WL_CONNECTED && NTP_SERVER[0]) {
+  if (stationOnline() && NTP_SERVER[0]) {
     configTime(0, 0, NTP_SERVER);
+    wifiTimeRequested = true;
     bootLogLine(BLACK, "Clock: requesting network time (UTC)");
   } else bootLogLine(BLACK, "Clock: using time since boot until network time is available");
 
@@ -1896,12 +2081,13 @@ void setup() {
 }
 
 void loop() {
+  serviceWiFi(millis());
   serviceSessionClock();
   serviceSessionEvents();
   server.handleClient();
   firmwareOta.loop(millis());
   if (firmwareOta.busy()) { setRelay(false); return; }
-  mqttBridge.loop(millis(), WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED);
+  mqttBridge.loop(millis(), stationOnline());
   handleLoRa();
   handleLocalSpd();
   handleTouch();

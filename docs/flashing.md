@@ -108,7 +108,7 @@ For an existing receiver config, remove `LORA_BW_KHZ`, `LORA_CR`,
 Copy any new display and touch settings from the updated
 `config.example.h` into your existing private `config.h`; keep your credentials
 and beacon entries. Rebuild after configuration changes. The LCD identifies this
-receiver release as **v0.2.3-tconnpro**; see its [changelog](../firmware/servers/tconnectpro_868/CHANGELOG.md).
+receiver release as **v0.2.4-tconnpro**; see its [changelog](../firmware/servers/tconnectpro_868/CHANGELOG.md).
 
 Connect the ESP32 USB port with a data cable, find its port with
 `arduino-cli board list`, then:

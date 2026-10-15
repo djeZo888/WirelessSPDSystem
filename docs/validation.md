@@ -6,8 +6,8 @@ Compile-only checks use synthetic credentials:
 | --- | ---: | ---: | --- |
 | AC-DC AVR128DA32 · sleep, LED mode 1 | 42,636 / 131,072 bytes | 1,543 / 16,384 bytes | Passed |
 | Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
-| T Connect Pro v0.2.3 · core 3.3.12, 127 wireless + local | 1,185,518 / 3,145,728 bytes | 199,948 / 327,680 bytes | Passed |
-| T Connect Pro v0.2.3 · core 2.0.14 compatibility | 1,016,065 / 3,145,728 bytes | 196,544 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.3 · core 3.3.12, 127 wireless + local | 1,185,518 / 3,145,728 bytes | 200,164 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.3 · core 2.0.14 compatibility | 1,016,065 / 3,145,728 bytes | 196,768 / 327,680 bytes | Passed |
 
 The receiver also allocates its session log dynamically in PSRAM: **2 MiB /
 4096 entries** by default, in addition to the LCD framebuffer. Global RAM in the
@@ -77,6 +77,26 @@ PyYAML 6.0.3 and Jinja2 3.1.6; CI installs them in an isolated environment. The
 guide has no external assets, scripts or fonts. Installing missing broker/HA/build
 dependencies is explicitly an online preparation step; later reading and building
 with prepared dependencies can be done offline.
+
+`python3 tests/check_server_wifi.py` runs the actual station setup, full restart,
+main loop, event handling and IPv4 parser with host I/O shims: **68 scenarios**
+across ESP32 core 2/3 APIs and 60/120-second retry intervals, plus **11** compile
+checks for literal interval limits. Coverage includes repeated failures then
+success, boot/runtime fallback, DHCP/IP loss, static host/mask/gateway/DNS checks,
+AP+STA MQTT readiness, OTA deferral, timer rollover and bounded event logging.
+Core 3 tests also model the legacy `WiFi.config` mask-order heuristic, which the
+firmware avoids with the native station API. Full framework stop/start calls can
+briefly block internally; the application contains no association/DHCP wait loop
+during recovery. Device recovery/static-address results are recorded in the
+[v0.2.4 release notes](https://github.com/djeZo888/WirelessSPDSystem/releases/tag/v0.2.4-tconnpro).
+
+On 16 October 2026, the v0.2.3 bench receiver was unreachable and displayed
+0.0.0.0 while still accepting LoRa packets. An intentional restart restored
+10.156.100.129 using unchanged credentials, and both beacons resumed reporting.
+The original trigger could not be determined: v0.2.3 did not record Wi-Fi
+disconnect reason codes. Source review confirmed missing application retries and
+an inactive-AP address being displayed after station/IP loss; v0.2.4 addresses
+both conditions. No router or Mac Wi-Fi settings were changed.
 
 The v0.1 receiver was flashed with Arduino IDE 2.3.10 / ESP32 core 3.3.12 /
 Arduino_GFX 1.6.9 at 460800 baud on 13 October 2026. Display/touch/AP/LoRa boot

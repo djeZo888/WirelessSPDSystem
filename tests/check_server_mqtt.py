@@ -259,6 +259,26 @@ int main(int argc,char **argv) {
   const auto previousMuteCalls=muteCalls; steps(static_cast<unsigned>(2*count+6));
   assert(muteCalls==previousMuteCalls); // Obsolete retained ON was cleared before subscribe.
 
+  // DHCP changes must update Home Assistant's link, even when first observed
+  // while MQTT is paused. Address updates never publish on the producer loop.
+  bridge.setPaused(true); bridge.testNetworkStep(clockMs);
+  const auto addressBefore=mqtt.sent.size();
+  char changedAddress[]="192.0.2.99";
+  bridge.setNetworkAddress(changedAddress); changedAddress[0]='X';
+  assert(mqtt.sent.size()==addressBefore);
+  bridge.testNetworkStep(clockMs); assert(mqtt.sent.size()==addressBefore);
+  bridge.setPaused(false); clockMs+=30000;
+  mqtt.sent.clear(); steps(static_cast<unsigned>(4*count+14));
+  assert(std::any_of(mqtt.sent.begin(),mqtt.sent.end(),[](const Publication &p) {
+    return p.payload.find("\"configuration_url\":\"http://192.0.2.99/\"")!=std::string::npos;
+  }));
+  // A repeat of the same address does not cause a discovery flood.
+  mqtt.sent.clear(); bridge.setNetworkAddress("192.0.2.99");
+  bridge.setNetworkAddress(nullptr); bridge.setNetworkAddress("");
+  bridge.setNetworkAddress("this-address-is-too-long");
+  steps(static_cast<unsigned>(2*count+6));
+  assert(std::none_of(mqtt.sent.begin(),mqtt.sent.end(),[](const Publication &p) {return p.topic.find("/config")!=std::string::npos;}));
+
 }
 '''
 

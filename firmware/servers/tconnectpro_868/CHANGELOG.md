@@ -3,6 +3,22 @@
 Receiver versions are independent of beacon HW/FW packet fields and repository
 releases. The LCD displays the receiver version with the `-tconnpro` suffix.
 
+## v0.2.4 — 2026-10-16
+
+- Retries a lost station connection or IP lease every 60–120 seconds (configured in `config.h`), with no association/DHCP
+  wait loop during monitoring. Boot fallback keeps the password-protected AP available
+  while station reconnection continues.
+- Adds optional static IPv4/netmask with optional gateway/DNS, strict address
+  validation and DHCP retained as the default.
+- Displays **connecting/offline** when neither interface has an address; refreshes the LCD
+  immediately on network state/address changes.
+- Logs Wi-Fi disconnect reason codes, lost/acquired IP and retry outcomes from
+  the main loop. Bounded event handling keeps callback work out of monitoring.
+- Starts NTP after a delayed connection, supports MQTT in AP+station mode and
+  refreshes Home Assistant's receiver link after an address change.
+- Defers recovery actions during firmware updates. Existing private configuration
+  and beacon firmware **1** remain compatible.
+
 ## v0.2.3 — 2026-10-14
 
 - Hides BAT on the LCD and web table when no authenticated hardware-type-2

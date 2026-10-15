@@ -87,7 +87,7 @@ class GuardChecks:
         prefix = "#include <stdint.h>\n#include <stddef.h>\n"
         if server:
             prefix += "#include <type_traits>\n#define LOW 0\n#define HIGH 1\n"
-        driver.write_text(prefix + '#include "config.h"\n' + guards)
+        driver.write_text(prefix + '#include "config.h"\n#include "wifi_recovery.h"\n' + guards)
         result = subprocess.run([compiler, "-std=c++11", "-fsyntax-only", "-I", str(SERVER),
                                  str(driver)], text=True, capture_output=True)
         if accepted and result.returncode != 0:
@@ -144,7 +144,7 @@ def server_string_checks(work, compiler, config, guards, sketch):
     driver = work / "runtime-config.cpp"
     body = ('#include <stdint.h>\n#include <stddef.h>\n#include <type_traits>\n'
             '#include <cstdio>\n#include <cstring>\n#define LOW 0\n#define HIGH 1\n'
-            '#include "config.h"\n' + guards
+            '#include "config.h"\n#include "wifi_recovery.h"\n' + guards
             + '\nchar lastSetupFailureText[112];\nint16_t lastSetupFailureCode;\n'
             + function(sketch, "validateSpdConfig") + '\nint main() {\n')
     for name, field, value, accepted in cases:
