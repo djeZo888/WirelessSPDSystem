@@ -16,6 +16,9 @@ releases. The LCD displays the receiver version with the `-tconnpro` suffix.
   mute and receiver loop together and reject the previous blocking behavior.
 - Requires regression cases alongside future receiver behavior changes.
   Beacon firmware remains **1**.
+- Shows the newest 100 log events first, with **Load more** below the table to
+  append each next 100 older events. History browsing pauses live refresh;
+  **Back to latest** restores the live newest-100 view.
 
 ## v0.2.4 — 2026-10-16
 

@@ -18,8 +18,8 @@ Compile-only checks use synthetic credentials:
 | --- | ---: | ---: | --- |
 | AC-DC AVR128DA32 · sleep, LED mode 1 | 42,636 / 131,072 bytes | 1,543 / 16,384 bytes | Passed |
 | Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
-| T Connect Pro v0.2.5 · core 3.3.12, 127 wireless + local | 1,193,978 / 3,145,728 bytes | 204,276 / 327,680 bytes | Passed |
-| T Connect Pro v0.2.5 · core 2.0.14 compatibility | 1,025,089 / 3,145,728 bytes | 200,880 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.5 · core 3.3.12, 127 wireless + local | 1,194,186 / 3,145,728 bytes | 204,276 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.5 · core 2.0.14 compatibility | 1,025,297 / 3,145,728 bytes | 200,880 / 327,680 bytes | Passed |
 
 The receiver also allocates its session log dynamically in PSRAM: **2 MiB /
 4096 entries** by default, in addition to the LCD framebuffer. Global RAM in the
@@ -116,7 +116,7 @@ connected and no serial reader. Opening a reader reduced the same requests to
 the common control/packet path; earlier isolated tests replaced that path with
 no-op logging and missed the stall.
 
-The private **v0.2.5** build (1,188,394 bytes flash / 67,236 bytes global RAM)
+The private **v0.2.5** control-fix build (1,188,394 bytes flash / 67,236 bytes global RAM)
 was installed by authenticated OTA and booted successfully. With USB connected
 and the reader closed, **31** mute requests passed: median **0.136 seconds**,
 maximum **0.818 seconds**. All **97** requests completed, including snapshots,
@@ -130,6 +130,14 @@ MCU restart. After deployment, the operator confirmed that the physical
 MUTE/UNMUTE button responds promptly and the LCD continues blinking. The production
 touch, alarm and blink paths also passed the integrated host suite. Physical
 relay/alarm wiring remains unqualified.
+
+The final v0.2.5 log-browser build (1,188,586 bytes flash / 67,236 bytes global
+RAM) was installed by a second OTA. It served the updated HTML byte-for-byte.
+Repeating the 97-request no-reader check passed: 31 mute requests measured median
+**0.104 seconds**, maximum **0.443 seconds**; the slowest request was **0.551
+seconds**. Dashboard tests verify newest-first 100-event pages, 200/300/400-row
+history loading without duplicates, all 4096 default retained entries, the
+8192-entry configured maximum, paused/live behavior, restarts and overflow.
 
 The v0.1 receiver was flashed with Arduino IDE 2.3.10 / ESP32 core 3.3.12 /
 Arduino_GFX 1.6.9 at 460800 baud on 13 October 2026. Display/touch/AP/LoRa boot

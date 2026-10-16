@@ -28,7 +28,8 @@ filters and expandable diagnostics. RSSI and SNR appear together; BAT is hidden
 until a hardware-type-2 beacon is identified anywhere in the configured list. A persistent
 MUTE/UNMUTE button controls alarm output from every tab; refresh timestamps
 include date and 24-hour time. **Logs** shows startup, packet and operational
-events from the current boot; see [session logging](../../../docs/session-logs.md).
+events from the current boot, newest first. It opens with 100 events; **Load more**
+at the bottom adds each next 100 older events. See [session logging](../../../docs/session-logs.md).
 The footer opens the full API as readable JSON in a new tab. See [Home Assistant setup](../../../docs/home-assistant.md)
 for the full locally hosted **HA Integration** guide, MQTT discovery, REST
 examples and a synchronized Home Assistant alarm mute switch, and [network firmware updates](../../../docs/network-updates.md)

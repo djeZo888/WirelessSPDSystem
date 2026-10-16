@@ -13,8 +13,11 @@ are never logged.
 bounded; invalid UTF-8 bytes are replaced and complete characters are retained. Oldest records are
 overwritten when full; the tab reports the count. If PSRAM allocation fails,
 monitoring continues with a smaller internal-RAM fallback and reports its size.
-The browser keeps a 1000-entry window; **Load older** and **Back to latest** browse
-the retained log without fetching the whole buffer in one request.
+The tab opens with the **newest 100 events first**, newest at the top. At the
+bottom, **Load more** appends the next 100 older events; repeat to browse the
+retained session. Loading history pauses live refresh so the rows stay in place.
+**Back to latest** returns to the live, newest-100 view. Each request fetches at
+most 100 records, and API responses retain ascending sequence order for clients.
 
 `NTP_SERVER` defaults to `pool.ntp.org`. Station Wi-Fi needs a reachable NTP
 server. Until synchronization, entries show time since boot; afterward the first

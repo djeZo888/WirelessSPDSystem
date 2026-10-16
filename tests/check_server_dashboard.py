@@ -23,6 +23,8 @@ assert 'MQTT Discovery' in html
 assert re.findall(r'data-page="([^"]+)"', html) == ['overview','firmware','logs','integration']
 assert '>HA Integration</button>' in html
 assert 'id="tab-logs"' in html and 'id="logsBody"' in html
+assert html.index('id="logsOlderBtn"') > html.index('id="logsBody"')
+assert '>Load more</button>' in html
 assert 'href="/api/v1/get?pretty=1" target="_blank"' in html
 assert html.count('id="muteBtn"') == 1 and html.count('id="refreshBtn"') == 1
 assert html.index('id="muteBtn"') < html.index('id="refreshBtn"') < html.index('<section id="overview"')
@@ -107,21 +109,55 @@ activePage='overview';
 const logEntry=(seq,synced=false)=>({seq,boot_ms:seq*1000,unix_ms:synced?new Date(2026,9,13,17,0,0).getTime()+seq*1000:null,message:seq===150?'<img src=x onerror="alert(1)">':`SPD 1 packet ${seq}`});
 const logPage=(start,count,extra={})=>({boot_id:'boot-a',capacity:4096,bytes:2097152,psram:true,dropped:0,clock_synced:false,oldest_seq:1,next_seq:start+count,entries:Array.from({length:count},(_,i)=>logEntry(start+i,!!extra.clock_synced)),has_more:false,...extra});
 let logUrls=[],logResponses=[];
-const installLogs=responses=>{logResponses=responses.slice();logUrls=[];fetch=async url=>{logUrls.push(url);assert.match(url,/^\/api\/v1\/logs\?/);if(!logResponses.length)throw new Error('Unexpected log fetch');const value=logResponses.shift();return {ok:true,json:async()=>value};};};
-installLogs([logPage(101,100)]);await loadLogs('latest');assert.equal(logUrls[0],'/api/v1/logs?tail=1&limit=100');assert.equal(logEntries.length,100);assert.equal(logEntries[0].seq,101);assert.equal(logAfter,200);assert.match(node('logsBody').innerHTML,/Before clock sync/);assert(!node('logsBody').innerHTML.includes('<img src=x'));assert(node('logsBody').innerHTML.includes('&lt;img src=x'));
-assert.match(node('logsMeta').textContent,/PSRAM.*2048 KiB.*4096/);assert.equal(node('logsOlderBtn').disabled,false);
-installLogs([logPage(201,5,{clock_synced:true}),logPage(106,100,{clock_synced:true})]);await loadLogs();assert.deepEqual(logUrls,['/api/v1/logs?after=200&limit=100','/api/v1/logs?tail=1&limit=100']);assert.equal(logEntries[0].seq,106);assert.equal(logEntries[99].seq,205);assert(!node('logsBody').innerHTML.includes('Before clock sync'));assert.match(node('logsBody').innerHTML,/2026-10-13<br>17:/);assert.match(node('logsMeta').textContent,/clock synchronized/);
-installLogs([logPage(206,100,{clock_synced:true,has_more:true}),logPage(306,5,{clock_synced:true})]);await loadLogs();assert.equal(logUrls.length,2);assert.equal(logAfter,310);assert.equal(logEntries.length,205);assert.equal(logEntries[logEntries.length-1].seq,310);
-installLogs([logPage(6,100,{clock_synced:true})]);await loadLogs('older');assert.equal(logUrls[0],'/api/v1/logs?before=106&limit=100');assert.equal(logFollowLive,false);assert.equal(logEntries[0].seq,6);assert.match(node('logsNotice').textContent,/paused/);const olderCalls=logUrls.length;await loadLogs();assert.equal(logUrls.length,olderCalls);
-installLogs([logPage(6,0,{clock_synced:true,oldest_seq:110,dropped:109})]);await loadLogs('older');assert.equal(logEntries[0].seq,110);assert.match(node('logsNotice').textContent,/109 older events were overwritten/);assert.equal(node('logsOlderBtn').disabled,true);
-installLogs([logPage(211,100,{clock_synced:true,oldest_seq:110,dropped:109})]);await loadLogs('latest');assert.equal(logFollowLive,true);assert.equal(logEntries.length,100);assert.equal(logEntries[0].seq,211);
-installLogs([logPage(1,0,{boot_id:'boot-b',next_seq:5}),logPage(1,4,{boot_id:'boot-b'})]);await loadLogs();assert.deepEqual(logUrls,['/api/v1/logs?after=310&limit=100','/api/v1/logs?tail=1&limit=100']);assert.equal(logBootId,'boot-b');assert.equal(logEntries.length,4);assert.equal(logAfter,4);assert.match(node('logsNotice').textContent,/receiver restarted/);
-const logSnapshot=node('logsBody').innerHTML;fetch=async()=>{throw new Error('offline');};await loadLogs();assert.equal(node('logsBody').innerHTML,logSnapshot);assert.equal(node('logsError').hidden,false);
-installLogs(Array.from({length:5},(_,page)=>logPage(5+page*100,100,{boot_id:'boot-b',has_more:true})));await loadLogs();assert.equal(logUrls.length,5);assert.equal(logAfter,504);assert.equal(logEntries.length,504);
-installLogs([logPage(505,10,{boot_id:'boot-b'})]);await loadLogs();assert.equal(logUrls[0],'/api/v1/logs?after=504&limit=100');assert.equal(logAfter,514);assert.equal(logEntries.length,514);
-logEntries=Array.from({length:1000},(_,i)=>logEntry(1001+i));logAfter=2000;installLogs([logPage(2001,100,{boot_id:'boot-b'})]);await loadLogs();assert.equal(logEntries.length,1000);assert.equal(logEntries[0].seq,1101);assert.match(node('logsCount').textContent,/window limited to 1000/);
-installLogs([logPage(1001,100,{boot_id:'boot-b'})]);await loadLogs('older');assert.equal(logEntries.length,1000);assert.equal(logEntries[0].seq,1001);assert.equal(logEntries[999].seq,2000);assert.equal(logFollowLive,false);
-const lastLogSnapshot=node('logsBody').innerHTML;installLogs([{boot_id:'boot-b',oldest_seq:1,entries:[{seq:1,message:null}]}]);await loadLogs('latest');assert.equal(node('logsBody').innerHTML,lastLogSnapshot);assert.equal(node('logsError').hidden,false);
+const installLogs=responses=>{logResponses=responses.slice();logUrls=[];fetch=async url=>{logUrls.push(url);assert.equal(logLoading,true);assert.equal(node('logsOlderBtn').disabled,true);assert.match(url,/^\/api\/v1\/logs\?/);if(!logResponses.length)throw new Error('Unexpected log fetch');const value=logResponses.shift();return {ok:true,json:async()=>value};};};
+const sequences=()=>Array.from(logEntries,entry=>entry.seq);
+const descending=(newest,count)=>Array.from({length:count},(_,i)=>newest-i);
+const expectWindow=(newest,count)=>{assert.deepEqual(sequences(),descending(newest,count));assert.equal(new Set(sequences()).size,count);assert.equal((node('logsBody').innerHTML.match(/<tr>/g)||[]).length,count);};
+installLogs([logPage(301,100)]);await loadLogs('latest');assert.deepEqual(logUrls,['/api/v1/logs?tail=1&limit=100']);expectWindow(400,100);assert.equal(logAfter,400);assert.match(node('logsBody').innerHTML,/Before clock sync/);
+assert.match(node('logsMeta').textContent,/PSRAM.*2048 KiB.*4096/);assert.equal(node('logsOlderBtn').disabled,false);assert.equal(node('logsOlderBtn').hidden,false);assert.equal(node('logsLatestBtn').disabled,true);
+assert(node('logsBody').innerHTML.indexOf('packet 400')<node('logsBody').innerHTML.indexOf('packet 301'));
+installLogs([logPage(201,100)]);await loadLogs('older');assert.deepEqual(logUrls,['/api/v1/logs?before=301&limit=100']);expectWindow(400,200);assert.equal(logFollowLive,false);assert.match(node('logsNotice').textContent,/paused.*newest 100/);assert.equal(node('logsLatestBtn').disabled,false);
+installLogs([logPage(101,100)]);await loadLogs('older');assert.deepEqual(logUrls,['/api/v1/logs?before=201&limit=100']);expectWindow(400,300);assert(!node('logsBody').innerHTML.includes('<img src=x'));assert(node('logsBody').innerHTML.includes('&lt;img src=x'));
+const olderCalls=logUrls.length;await loadLogs();assert.equal(logUrls.length,olderCalls);expectWindow(400,300);
+// A duplicate/misordered older response cannot introduce repeats or place a
+// newer entry in the middle of an expanded history window.
+const overlapping=logPage(1,100);overlapping.entries.reverse();overlapping.entries.push(logEntry(101),logEntry(301));
+installLogs([overlapping]);await loadLogs('older');assert.equal(logUrls[0],'/api/v1/logs?before=101&limit=100');expectWindow(400,400);assert.equal(node('logsOlderBtn').hidden,true);assert.equal(node('logsOlderBtn').disabled,true);
+const exhaustedCalls=logUrls.length;await loadLogs('older');assert.equal(logUrls.length,exhaustedCalls);
+// Back to latest resets to exactly the latest hundred, and each live poll asks
+// for the tail rather than appending an unbounded stream or fetching old pages.
+installLogs([logPage(351,100,{clock_synced:true})]);await loadLogs('latest');assert.deepEqual(logUrls,['/api/v1/logs?tail=1&limit=100']);expectWindow(450,100);assert.equal(logFollowLive,true);assert.equal(logAfter,450);assert(!node('logsBody').innerHTML.includes('Before clock sync'));assert.match(node('logsBody').innerHTML,/2026-10-13<br>17:/);assert.match(node('logsMeta').textContent,/clock synchronized/);
+installLogs([logPage(356,100,{clock_synced:true})]);await loadLogs();assert.deepEqual(logUrls,['/api/v1/logs?tail=1&limit=100']);expectWindow(455,100);assert.equal(logAfter,455);
+// Arbitrarily many new events between polls still show the actual latest100.
+installLogs([logPage(1501,100,{clock_synced:true})]);await loadLogs();assert.equal(logUrls.length,1);expectWindow(1600,100);
+installLogs([logPage(1401,100,{clock_synced:true})]);await loadLogs('older');expectWindow(1600,200);
+const historySnapshot=node('logsBody').innerHTML,historyCursor=logEntries[logEntries.length-1].seq;
+fetch=async()=>{throw new Error('offline');};await loadLogs('older');assert.equal(node('logsBody').innerHTML,historySnapshot);assert.equal(logEntries[logEntries.length-1].seq,historyCursor);assert.equal(node('logsError').hidden,false);assert.match(node('logsError').textContent,/Load more again, or Back to latest/);assert.equal(node('logsOlderBtn').disabled,false);assert.equal(logFollowLive,false);
+installLogs([logPage(1301,100,{clock_synced:true})]);await loadLogs('older');assert.equal(logUrls[0],'/api/v1/logs?before=1401&limit=100');expectWindow(1600,300);assert.equal(node('logsError').hidden,true);
+// Ring overflow prunes expired cached rows, reports the loss and hides Load
+// more once the oldest retained entry has been reached.
+installLogs([logPage(1301,0,{clock_synced:true,oldest_seq:1450,dropped:1449})]);await loadLogs('older');expectWindow(1600,151);assert.match(node('logsNotice').textContent,/1449 older events were overwritten/);assert.equal(node('logsOlderBtn').hidden,true);
+// A restart while following live or loading older data cannot mix boot IDs.
+installLogs([logPage(1,4,{boot_id:'boot-b'}),logPage(1,4,{boot_id:'boot-b'})]);await loadLogs('latest');assert.deepEqual(logUrls,['/api/v1/logs?tail=1&limit=100','/api/v1/logs?tail=1&limit=100']);expectWindow(4,4);assert.equal(logBootId,'boot-b');assert.equal(logAfter,4);assert.match(node('logsNotice').textContent,/receiver restarted/);assert.equal(node('logsOlderBtn').hidden,true);
+installLogs([logPage(301,100,{boot_id:'boot-b'})]);await loadLogs();expectWindow(400,100);
+installLogs([logPage(1,4,{boot_id:'boot-c'}),logPage(1,6,{boot_id:'boot-c'})]);await loadLogs('older');assert.deepEqual(logUrls,['/api/v1/logs?before=301&limit=100','/api/v1/logs?tail=1&limit=100']);expectWindow(6,6);assert.equal(logBootId,'boot-c');assert.equal(logFollowLive,true);
+installLogs([logPage(301,100,{boot_id:'boot-c'})]);await loadLogs();
+installLogs([logPage(1,4,{boot_id:'boot-d'})]);await loadLogs('older');assert.deepEqual(logUrls,['/api/v1/logs?before=301&limit=100','/api/v1/logs?tail=1&limit=100']);expectWindow(0,0);assert.equal(logBootId,'boot-d');assert.match(node('logsNotice').textContent,/receiver restarted/);assert.match(node('logsError').textContent,/Retry with Refresh/);assert(!node('logsError').textContent.includes('last loaded'));
+installLogs([logPage(1,6,{boot_id:'boot-d'})]);await loadLogs();expectWindow(6,6);
+// Empty and short sessions need neither phantom entries nor a Load more button.
+installLogs([logPage(1,0,{boot_id:'boot-d'})]);await loadLogs();expectWindow(0,0);assert.equal(node('logsEmpty').hidden,false);assert.equal(node('logsOlderBtn').hidden,true);
+installLogs([logPage(1,7,{boot_id:'boot-d'})]);await loadLogs();expectWindow(7,7);assert.equal(node('logsOlderBtn').hidden,true);
+// All 4096 retained records can be browsed: the former1000-row cap must not
+// stop the next100 older entries from being appended.
+installLogs([logPage(3997,100,{boot_id:'boot-d',next_seq:4097})]);await loadLogs();expectWindow(4096,100);
+for(let end=3996;end>0;end-=100){const first=Math.max(1,end-99);installLogs([logPage(first,end-first+1,{boot_id:'boot-d',next_seq:4097})]);await loadLogs('older');assert.equal(logUrls[0],'/api/v1/logs?before='+(end+1)+'&limit=100');expectWindow(4096,4097-first);}
+assert.equal(logEntries.length,4096);assert.equal(node('logsOlderBtn').hidden,true);
+// The maximum configured4MiB ring is also bounded in browser memory. Once
+// all8192 retained rows are present the history cursor cannot fetch forever.
+logEntries=Array.from({length:8180},(_,i)=>logEntry(9000-i));logMeta={...logMeta,oldest_seq:1,capacity:8192};logLoaded=true;logFollowLive=false;installLogs([logPage(721,100,{boot_id:'boot-d',capacity:8192})]);await loadLogs('older');expectWindow(9000,8192);assert.equal(node('logsOlderBtn').hidden,true);assert.match(node('logsCount').textContent,/window limited to 8192/);
+const cappedCalls=logUrls.length;await loadLogs('older');assert.equal(logUrls.length,cappedCalls);
+const lastLogSnapshot=node('logsBody').innerHTML;installLogs([{boot_id:'boot-d',oldest_seq:1,entries:[{seq:1,message:null}]}]);await loadLogs('latest');assert.equal(node('logsBody').innerHTML,lastLogSnapshot);assert.equal(node('logsError').hidden,false);
+installLogs([logPage(1,0,{boot_id:'boot-d'})]);await loadLogs('latest');assert.equal(logFollowLive,true);expectWindow(0,0);
 
 latest=fixture(0);render();assert.match(node('empty').innerHTML,/No SPDs configured/);
 })()

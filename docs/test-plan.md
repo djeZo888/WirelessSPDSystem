@@ -48,7 +48,7 @@ the path that caused the regression.
 |---|---|
 | `check_server_api.py` | Complete list/summary and log pagination across 13 configurations, up to all 128 rows; pretty JSON and integration downloads. |
 | `check_server_display.py` | Actual renderer geometry, battery-column layouts, paging, footer and touch behavior. |
-| `check_server_dashboard.py` | Browser script, filtering/escaping, network failures, controls, firmware upload and offline guide embedding. |
+| `check_server_dashboard.py` | Browser script, filtering/escaping, network failures, controls, firmware upload, offline guide and newest-first 100-event log batches with history/restart/overflow handling. |
 | `check_server_mqtt.py` | Actual broker client state machine, discovery, strict command validation, retained-command protection, reconnects and synchronized state. |
 | `check_server_wifi.py` | DHCP/static configuration, disconnect/restart recovery and time/attempt boundaries. |
 | `check_server_logs.py` | 2 MiB ring retention, wrap, timestamp reconstruction, bounded UTF-8 messages and JSON formatting. |
