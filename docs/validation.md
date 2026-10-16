@@ -126,9 +126,10 @@ and nonces during the benchmark, then each supplied at least three new accepted
 reports. The log API retained all 31 control events; the initial muted state was
 restored. A failed
 initial Wi-Fi join also recovered on the configured 60-second retry without an
-MCU restart. Physical touchscreen pressing/blink timing was not observed during
-this run; the production touch, alarm and blink paths passed the integrated host
-suite. Physical relay/alarm wiring remains unqualified.
+MCU restart. After deployment, the operator confirmed that the physical
+MUTE/UNMUTE button responds promptly and the LCD continues blinking. The production
+touch, alarm and blink paths also passed the integrated host suite. Physical
+relay/alarm wiring remains unqualified.
 
 The v0.1 receiver was flashed with Arduino IDE 2.3.10 / ESP32 core 3.3.12 /
 Arduino_GFX 1.6.9 at 460800 baud on 13 October 2026. Display/touch/AP/LoRa boot
