@@ -228,8 +228,8 @@ int main() {
 def verify_response(payload, wireless, local):
     expected_ids = ([0] if local else []) + list(range(1, wireless + 1))
     rows = payload["spds"]
-    assert payload["gateway"]["server_version"] == "v0.2.4"
-    assert payload["gateway"]["firmware_id"] == "v0.2.4-tconnpro"
+    assert payload["gateway"]["server_version"] == "v0.2.5"
+    assert payload["gateway"]["firmware_id"] == "v0.2.5-tconnpro"
     assert payload["gateway"]["gateway_id"] == "wspd-test"
     assert payload["gateway"]["mqtt"] == {"enabled": False, "connected": False}
     assert payload["gateway"]["ota"] == {

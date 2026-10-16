@@ -199,6 +199,7 @@ struct MqttShim {
   void setNetworkAddress(const char *ip) { assert(!inWiFiCallback); address = ip; }
 } mqttBridge;
 struct ServerShim { void handleClient() {} } server;
+void serviceSerialLog() {}
 void serviceSessionClock() {}
 void serviceSessionEvents() {}
 unsigned relayOffCalls = 0, loRaCalls = 0;

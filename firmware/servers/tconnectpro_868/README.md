@@ -6,7 +6,12 @@ PSRAM, 868 MHz SX1262, ST7796 LCD and CST226SE touch. It accepts both
 [battery](../../beacons/battery_avr128db32) beacon firmware using the
 [20-byte authenticated protocol](../../../docs/protocol.md). The [API reference](../../../docs/api.md) documents the full-list response and controls.
 
-Receiver firmware is **v0.2.4**, shown on the LCD as **v0.2.4-tconnpro**.
+Receiver firmware is **v0.2.5**, shown on the LCD as **v0.2.5-tconnpro**.
+
+USB diagnostics are best-effort: a slow or missing serial reader cannot block
+monitoring, mute controls or the web service. The **Logs** tab retains the session
+log in RAM even when USB copies are dropped. Mute silences the relay; visual
+warnings and packet reception continue.
 See the [receiver changelog](CHANGELOG.md). This version is separate from beacon
 HW/FW fields in LoRa packets and the repository's `v0.1.0` release.
 

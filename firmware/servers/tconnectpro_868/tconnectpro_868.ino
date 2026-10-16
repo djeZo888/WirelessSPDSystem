@@ -48,6 +48,7 @@
 #include <esp_system.h>
 #include <sys/time.h>
 #include "session_log.h"
+#include "serial_log.h"
 #include "json_format.h"
 #include "wifi_recovery.h"
 
@@ -190,6 +191,7 @@ static void sessionLogLine(const char *text);
 static void sessionLogf(const char *fmt, ...);
 WspdWebOta firmwareOta(server, OTA_ENABLED, OTA_TOKEN, firmwareMaintenance, sessionLogLine);
 WspdSessionLog sessionLog;
+WspdSerialLogMirror serialLogMirror;
 static WspdSessionLog::Record emergencyLog[16];
 static bool sessionLogPsram = false;
 static char sessionBootId[17] = {0};
@@ -197,8 +199,10 @@ static uint64_t sessionNowMs() { return uint64_t(esp_timer_get_time()) / 1000ULL
 
 static void sessionLogLine(const char *text) {
   sessionLog.append(sessionNowMs(), text);
-  Serial.println(text);
+  serialLogMirror.enqueue(text);
 }
+
+static void serviceSerialLog() { serialLogMirror.pump(Serial); }
 
 static void sessionLogf(const char *fmt, ...) {
   char message[496]; va_list args; va_start(args, fmt);
@@ -1013,6 +1017,7 @@ static void fatalBootError(int32_t code, const char *module, const char *text) {
 
   while (true) {
     setRelay(false);
+    serviceSerialLog();
     delay(250);
   }
 }
@@ -1407,8 +1412,8 @@ static bool pollTouchLandscape(bool &downOut, int16_t &xOut, int16_t &yOut) {
 
 static void setAlarmMuted(bool muted, const char *source) {
   alarmMuted = muted;
-  sessionLogf("[Alarm] %s via %s", muted ? "Muted" : "Unmuted", source);
   if (muted) setRelay(false);
+  sessionLogf("[Alarm] %s via %s", muted ? "Muted" : "Unmuted", source);
   requestScreenRedraw();
   mqttBridge.notifyMuteStateChanged();
 }
@@ -1454,8 +1459,8 @@ static void handleTouch() {
 
 static void setRelay(bool on) {
   static bool known = false, current = false;
-  if (!known || current != on) { sessionLogf("[Relay] Output %s", on ? "ON" : "OFF"); current = on; known = true; }
   digitalWrite(RELAY_1, on ? RELAY_ACTIVE_LEVEL : RELAY_INACTIVE_LEVEL);
+  if (!known || current != on) { sessionLogf("[Relay] Output %s", on ? "ON" : "OFF"); current = on; known = true; }
 }
 
 static void setupRelay() {
@@ -2023,6 +2028,7 @@ void setup() {
   bootMs = millis();
   snprintf(gatewayId, sizeof(gatewayId), "wspd-%012llx", (unsigned long long)ESP.getEfuseMac());
   Serial.begin(115200);
+  serialLogMirror.begin(Serial);
   delay(200);
   setupSessionLog();
   sessionLogf("T-Connect Pro SPD Monitor %s starting\n", SERVER_FIRMWARE_ID);
@@ -2081,6 +2087,7 @@ void setup() {
 }
 
 void loop() {
+  serviceSerialLog();
   serviceWiFi(millis());
   serviceSessionClock();
   serviceSessionEvents();
