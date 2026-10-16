@@ -1,13 +1,25 @@
 # Validation
 
+The [receiver test plan](test-plan.md) maps controls, web requests, packets and
+failure/recovery behavior to automated and device checks. Run
+`python3 tests/check_server_scenarios.py` for the integrated regression suite:
+14 USB/local-input configurations execute the production loop, touch/web/HA mute
+paths, relay, packet decoding and session logging together. Each simulated loop
+must add no more than 100 ms of blocking I/O, continue blinking and serve the next
+request/packet. USB backpressure, queue overflow and partial/zero writes are
+included. Restoring the old synchronous logger must fail the same workload; it
+detects a 20-second simulated stall. These bounds describe the host I/O model,
+not physical HTTP or LCD timing. The focused suites below cover their remaining
+components; CI runs both layers.
+
 Compile-only checks use synthetic credentials:
 
 | Project | Flash | Global RAM | Result |
 | --- | ---: | ---: | --- |
 | AC-DC AVR128DA32 · sleep, LED mode 1 | 42,636 / 131,072 bytes | 1,543 / 16,384 bytes | Passed |
 | Battery AVR128DB32 | 42,354 / 131,072 bytes | 1,539 / 16,384 bytes | Passed |
-| T Connect Pro v0.2.3 · core 3.3.12, 127 wireless + local | 1,185,518 / 3,145,728 bytes | 200,164 / 327,680 bytes | Passed |
-| T Connect Pro v0.2.3 · core 2.0.14 compatibility | 1,016,065 / 3,145,728 bytes | 196,768 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.5 · core 3.3.12, 127 wireless + local | 1,194,186 / 3,145,728 bytes | 204,276 / 327,680 bytes | Passed |
+| T Connect Pro v0.2.5 · core 2.0.14 compatibility | 1,025,297 / 3,145,728 bytes | 200,880 / 327,680 bytes | Passed |
 
 The receiver also allocates its session log dynamically in PSRAM: **2 MiB /
 4096 entries** by default, in addition to the LCD framebuffer. Global RAM in the
@@ -97,6 +109,35 @@ The original trigger could not be determined: v0.2.3 did not record Wi-Fi
 disconnect reason codes. Source review confirmed missing application retries and
 an inactive-AP address being displayed after station/IP loss; v0.2.4 addresses
 both conditions. No router or Mac Wi-Fi settings were changed.
+
+On 16 October 2026, mute/unmute on v0.2.4 took **4.02–4.28 seconds** with USB
+connected and no serial reader. Opening a reader reduced the same requests to
+0.07–0.37 seconds. Source inspection identified synchronous USB log writes in
+the common control/packet path; earlier isolated tests replaced that path with
+no-op logging and missed the stall.
+
+The private **v0.2.5** control-fix build (1,188,394 bytes flash / 67,236 bytes global RAM)
+was installed by authenticated OTA and booted successfully. With USB connected
+and the reader closed, **31** mute requests passed: median **0.136 seconds**,
+maximum **0.818 seconds**. All **97** requests completed, including snapshots,
+health checks, the dashboard, pretty JSON and a 100-entry log page; the slowest
+was **1.498 seconds**. Both real beacons advanced authenticated packet counts
+and nonces during the benchmark, then each supplied at least three new accepted
+reports. The log API retained all 31 control events; the initial muted state was
+restored. A failed
+initial Wi-Fi join also recovered on the configured 60-second retry without an
+MCU restart. After deployment, the operator confirmed that the physical
+MUTE/UNMUTE button responds promptly and the LCD continues blinking. The production
+touch, alarm and blink paths also passed the integrated host suite. Physical
+relay/alarm wiring remains unqualified.
+
+The final v0.2.5 log-browser build (1,188,586 bytes flash / 67,236 bytes global
+RAM) was installed by a second OTA. It served the updated HTML byte-for-byte.
+Repeating the 97-request no-reader check passed: 31 mute requests measured median
+**0.104 seconds**, maximum **0.443 seconds**; the slowest request was **0.551
+seconds**. Dashboard tests verify newest-first 100-event pages, 200/300/400-row
+history loading without duplicates, all 4096 default retained entries, the
+8192-entry configured maximum, paused/live behavior, restarts and overflow.
 
 The v0.1 receiver was flashed with Arduino IDE 2.3.10 / ESP32 core 3.3.12 /
 Arduino_GFX 1.6.9 at 460800 baud on 13 October 2026. Display/touch/AP/LoRa boot

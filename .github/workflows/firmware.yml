@@ -29,6 +29,9 @@ jobs:
       - name: Check nonblocking Wi-Fi recovery
         if: matrix.target == 'server'
         run: python3 tests/check_server_wifi.py
+      - name: Check integrated controls, web and packet progress under USB backpressure
+        if: matrix.target == 'server'
+        run: python3 tests/check_server_scenarios.py
       - name: Check server display paging
         if: matrix.target == 'server'
         run: python3 tests/check_server_display.py

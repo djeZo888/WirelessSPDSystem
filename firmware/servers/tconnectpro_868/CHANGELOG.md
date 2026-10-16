@@ -3,6 +3,23 @@
 Receiver versions are independent of beacon HW/FW packet fields and repository
 releases. The LCD displays the receiver version with the `-tconnpro` suffix.
 
+## v0.2.5 — 2026-10-16
+
+- Fixes multi-second mute/unmute, red-blink and HTTP stalls when a connected
+  USB host stops reading diagnostics. USB mirroring now uses a fixed 4 KiB queue,
+  zero write timeout and at most 64 bytes per loop; congested USB copies may be
+  dropped while the complete session log remains in RAM.
+- Applies relay GPIO changes before diagnostics, including immediate relay OFF
+  when muted. Touch, web and Home Assistant retain the same shared mute state.
+- Adds integrated control/web/packet scenarios with a slow or absent USB reader,
+  partial writes and saturated buffers. Tests exercise the production logging,
+  mute and receiver loop together and reject the previous blocking behavior.
+- Requires regression cases alongside future receiver behavior changes.
+  Beacon firmware remains **1**.
+- Shows the newest 100 log events first, with **Load more** below the table to
+  append each next 100 older events. History browsing pauses live refresh;
+  **Back to latest** restores the live newest-100 view.
+
 ## v0.2.4 — 2026-10-16
 
 - Retries a lost station connection or IP lease every 60–120 seconds (configured in `config.h`), with no association/DHCP
